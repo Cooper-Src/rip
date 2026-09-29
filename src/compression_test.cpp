@@ -1,5 +1,6 @@
 #include "rip/compression.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -71,7 +72,7 @@ bool test_data(
 int main()
 {
     std::cout
-        << "RIPC v0.6 compression test\n"
+        << "RIPC v0.7 compression test\n"
         << "==========================\n\n";
 
     std::string text =
@@ -150,8 +151,72 @@ int main()
         return 1;
     }
 
+std::cout
+    << "\nCompression levels\n"
+    << "------------------\n";
+
+const std::array<
+    rip::compression::CompressionLevel,
+    3>
+    levels =
+{
+    rip::compression::CompressionLevel::Fast,
+    rip::compression::CompressionLevel::Balanced,
+    rip::compression::CompressionLevel::Maximum
+};
+
+for (const auto level : levels)
+{
+    std::vector<std::byte> compressed;
+    std::vector<std::byte> restored;
+    std::string error;
+
+    if (!rip::compression::compress(
+            repetitive,
+            compressed,
+            &error,
+            level))
+    {
+        std::cerr
+            << "Level test compression failed: "
+            << error
+            << '\n';
+
+        return 1;
+    }
+
+    if (!rip::compression::decompress(
+            compressed,
+            restored,
+            &error))
+    {
+        std::cerr
+            << "Level test decompression failed: "
+            << error
+            << '\n';
+
+        return 1;
+    }
+
+    if (restored != repetitive)
+    {
+        std::cerr
+            << "Level test data mismatch\n";
+
+        return 1;
+    }
+
     std::cout
-        << "\nAll RIPC v0.6 tests passed.\n";
+        << "Level "
+        << static_cast<unsigned>(
+               level)
+        << ": "
+        << compressed.size()
+        << " bytes\n";
+}
+
+    std::cout
+        << "\nAll RIPC v0.7 tests passed.\n";
 
     return 0;
 }

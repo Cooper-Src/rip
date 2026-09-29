@@ -39,8 +39,14 @@ constexpr std::size_t MAX_MATCH_LENGTH =
 constexpr std::size_t MIN_MATCH_LENGTH =
     3;
 
-constexpr std::size_t MAX_CHAIN_LENGTH =
-    64;
+constexpr std::size_t HASH_BITS =
+    18;
+
+constexpr std::size_t HASH_SIZE =
+    std::size_t{1} << HASH_BITS;
+
+constexpr std::size_t HASH_MASK =
+    HASH_SIZE - 1;
 
 constexpr std::uint8_t EXTENDED_LENGTH_MARKER =
     0xFF;
@@ -147,31 +153,25 @@ std::uint64_t read_u64(
     return value;
 }
 
-std::uint32_t hash3(
+std::uint32_t hash4(
     const std::byte* data)
 {
-    const auto a =
-        static_cast<std::uint32_t>(
-            static_cast<std::uint8_t>(
-                data[0]));
-
-    const auto b =
-        static_cast<std::uint32_t>(
-            static_cast<std::uint8_t>(
-                data[1]));
-
-    const auto c =
-        static_cast<std::uint32_t>(
-            static_cast<std::uint8_t>(
-                data[2]));
-
     std::uint32_t hash =
-        a * 251u;
+        2166136261u;
 
-    hash ^= b * 911u;
-    hash ^= c * 3571u;
+    for (unsigned int i = 0;
+         i < 4;
+         ++i)
+    {
+        hash ^=
+            static_cast<std::uint8_t>(
+                data[i]);
 
-    return hash & 0xffffu;
+        hash *=
+            16777619u;
+    }
+
+    return hash & HASH_MASK;
 }
 
 struct LzToken
@@ -186,15 +186,44 @@ struct LzToken
 };
 
 Bytes lz_compress(
-    std::span<const std::byte> input)
+    std::span<const std::byte> input,
+    CompressionLevel compression_level)
 {
     if (input.empty())
     {
         return {};
     }
 
-    std::array<int, 65536> head;
-    head.fill(-1);
+    const int level =
+        static_cast<int>(
+            compression_level);
+
+    std::size_t max_chain_length = 64;
+    std::size_t nice_match_length = 1024;
+    bool use_lazy_matching = true;
+
+    if (level <= 1)
+    {
+        max_chain_length = 24;
+        nice_match_length = 512;
+        use_lazy_matching = false;
+    }
+    else if (level <= 5)
+    {
+        max_chain_length = 96;
+        nice_match_length = 2048;
+        use_lazy_matching = true;
+    }
+    else
+    {
+        max_chain_length = 256;
+        nice_match_length = 8192;
+        use_lazy_matching = true;
+    }
+
+    std::vector<int> head(
+        HASH_SIZE,
+        -1);
 
     std::vector<int> previous(
         input.size(),
@@ -203,13 +232,14 @@ Bytes lz_compress(
     auto insert_position =
         [&](std::size_t position)
         {
-            if (position + 2 >= input.size())
+            if (position + 3 >=
+                input.size())
             {
                 return;
             }
 
             const std::uint32_t hash =
-                hash3(
+                hash4(
                     input.data() +
                     position);
 
@@ -227,7 +257,8 @@ Bytes lz_compress(
             std::size_t best_length = 0;
             std::size_t best_distance = 0;
 
-            if (position + 2 >= input.size())
+            if (position + 3 >=
+                input.size())
             {
                 return std::pair{
                     best_length,
@@ -235,7 +266,7 @@ Bytes lz_compress(
             }
 
             const std::uint32_t hash =
-                hash3(
+                hash4(
                     input.data() +
                     position);
 
@@ -246,13 +277,16 @@ Bytes lz_compress(
 
             while (
                 candidate >= 0 &&
-                chain_count < MAX_CHAIN_LENGTH)
+                chain_count <
+                    max_chain_length)
             {
-                const std::size_t candidate_position =
-                    static_cast<std::size_t>(
-                        candidate);
+                const std::size_t
+                    candidate_position =
+                        static_cast<std::size_t>(
+                            candidate);
 
-                if (candidate_position >= position)
+                if (candidate_position >=
+                    position)
                 {
                     break;
                 }
@@ -261,9 +295,27 @@ Bytes lz_compress(
                     position -
                     candidate_position;
 
-                if (distance > WINDOW_SIZE)
+                if (distance >
+                    WINDOW_SIZE)
                 {
                     break;
+                }
+
+                if (input[candidate_position] !=
+                        input[position] ||
+                    input[candidate_position + 1] !=
+                        input[position + 1] ||
+                    input[candidate_position + 2] !=
+                        input[position + 2] ||
+                    input[candidate_position + 3] !=
+                        input[position + 3])
+                {
+                    candidate =
+                        previous[
+                            candidate_position];
+
+                    ++chain_count;
+                    continue;
                 }
 
                 const std::size_t maximum =
@@ -272,7 +324,7 @@ Bytes lz_compress(
                         input.size() -
                             position);
 
-                std::size_t length = 0;
+                std::size_t length = 4;
 
                 while (
                     length < maximum &&
@@ -284,7 +336,8 @@ Bytes lz_compress(
                     ++length;
                 }
 
-                if (length > best_length)
+                if (length >
+                    best_length)
                 {
                     best_length =
                         length;
@@ -292,7 +345,9 @@ Bytes lz_compress(
                     best_distance =
                         distance;
 
-                    if (length == maximum)
+                    if (length >=
+                            nice_match_length ||
+                        length == maximum)
                     {
                         break;
                     }
@@ -318,15 +373,56 @@ Bytes lz_compress(
 
     std::size_t position = 0;
 
-    while (position < input.size())
+    while (position <
+           input.size())
     {
-        const auto [
-            match_length,
-            match_distance
-        ] =
+        auto [match_length,
+              match_distance] =
             find_match(position);
 
-        if (match_length >= MIN_MATCH_LENGTH)
+        /*
+         * Lazy matching:
+         *
+         * If consuming one literal now lets
+         * us discover a substantially longer
+         * match at the next byte, prefer the
+         * longer match.
+         */
+        if (use_lazy_matching &&
+            match_length >=
+                MIN_MATCH_LENGTH &&
+            position + 4 <
+                input.size())
+        {
+            const auto [next_length,
+                        next_distance] =
+                find_match(
+                    position + 1);
+
+            if (next_length >
+                match_length + 1)
+            {
+                LzToken token;
+
+                token.type = 0;
+
+                token.literals.push_back(
+                    input[position]);
+
+                tokens.push_back(
+                    std::move(token));
+
+                insert_position(position);
+                ++position;
+
+                continue;
+            }
+
+            (void)next_distance;
+        }
+
+        if (match_length >=
+            MIN_MATCH_LENGTH)
         {
             LzToken token;
 
@@ -358,7 +454,8 @@ Bytes lz_compress(
         const std::size_t run_start =
             position;
 
-        while (position < input.size())
+        while (position <
+               input.size())
         {
             const auto [
                 next_match_length,
@@ -375,10 +472,11 @@ Bytes lz_compress(
             }
 
             insert_position(position);
-
             ++position;
 
-            if (position - run_start >= 255)
+            if (position -
+                    run_start >=
+                255)
             {
                 break;
             }
@@ -436,10 +534,12 @@ Bytes lz_compress(
 
     std::size_t token_index = 0;
 
-    while (token_index < tokens.size())
+    while (token_index <
+           tokens.size())
     {
-        const std::size_t control_position =
-            output.size();
+        const std::size_t
+            control_position =
+                output.size();
 
         output.push_back(
             static_cast<std::byte>(0));
@@ -448,8 +548,10 @@ Bytes lz_compress(
 
         for (unsigned int slot = 0;
              slot < 4 &&
-             token_index < tokens.size();
-             ++slot, ++token_index)
+             token_index <
+                 tokens.size();
+             ++slot,
+             ++token_index)
         {
             const LzToken& token =
                 tokens[token_index];
@@ -470,7 +572,8 @@ Bytes lz_compress(
                     output,
                     token.distance);
 
-                if (token.length <= 257)
+                if (token.length <=
+                    257)
                 {
                     write_u8(
                         output,
@@ -505,7 +608,8 @@ Bytes lz_compress(
             }
         }
 
-        output[control_position] =
+        output[
+            control_position] =
             static_cast<std::byte>(
                 control);
     }
@@ -1467,12 +1571,15 @@ bool huffman_decompress(
 bool compress(
     std::span<const std::byte> input,
     std::vector<std::byte>& output,
-    std::string* error)
+    std::string* error,
+    CompressionLevel level)
 {
     output.clear();
 
     const auto raw =
-        lz_compress(input);
+    lz_compress(
+        input,
+        level);
 
     // Existing v0.5 byte-oriented Huffman path.
     std::vector<std::byte>
@@ -1636,8 +1743,9 @@ bool decompress(
             input,
             position);
 
-    if (version !=
-        RIPC_VERSION)
+    if (version != 5 &&
+    version != 6 &&
+    version != RIPC_VERSION)
     {
         set_error(
             error,
