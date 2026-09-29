@@ -292,3 +292,32 @@ else()
             -Wpedantic
     )
 endif()
+
+add_executable(
+    rip-token-codec-test
+    src/token_codec_test.cpp
+    src/token_codec.cpp
+)
+
+target_include_directories(
+    rip-token-codec-test
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+if(MSVC)
+    target_compile_options(
+        rip-token-codec-test
+        PRIVATE
+            /W4
+            /permissive-
+    )
+else()
+    target_compile_options(
+        rip-token-codec-test
+        PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+    )
+endif()
