@@ -137,54 +137,21 @@ bool compress(
 {
     output.clear();
 
-    if (input.size() >
-        std::numeric_limits<std::uint64_t>::max())
-    {
-        set_error(
-            error,
-            "Input is too large.");
-
-        return false;
-    }
-
-    output.reserve(
-        input.size() + 32);
-
-    // Header:
-    // 4 bytes  magic
-    // 1 byte   version
-    // 1 byte   flags
-    // 2 bytes  reserved
-    // 8 bytes  original size
+    output.reserve(input.size() + 32);
 
     output.insert(
         output.end(),
-        reinterpret_cast<const std::byte*>(
-            MAGIC),
-        reinterpret_cast<const std::byte*>(
-            MAGIC + 4));
+        reinterpret_cast<const std::byte*>(MAGIC),
+        reinterpret_cast<const std::byte*>(MAGIC + 4));
 
-    write_u8(
-        output,
-        RIPC_VERSION);
-
-    write_u8(
-        output,
-        0);
-
-    write_u16(
-        output,
-        0);
-
+    write_u8(output, RIPC_VERSION);
+    write_u8(output, 0);
+    write_u16(output, 0);
     write_u64(
         output,
-        static_cast<std::uint64_t>(
-            input.size()));
+        static_cast<std::uint64_t>(input.size()));
 
-    const std::size_t size =
-        input.size();
-
-    if (size == 0)
+    if (input.empty())
     {
         return true;
     }
@@ -193,32 +160,109 @@ bool compress(
     head.fill(-1);
 
     std::vector<int> previous(
-        size,
+        input.size(),
         -1);
 
     auto insert_position =
         [&](std::size_t position)
         {
-            if (position + 2 >= size)
+            if (position + 2 >= input.size())
             {
                 return;
             }
 
             const std::uint32_t hash =
-                hash3(
-                    input.data() + position);
+                hash3(input.data() + position);
 
             previous[position] =
                 head[hash];
 
             head[hash] =
-                static_cast<int>(
-                    position);
+                static_cast<int>(position);
+        };
+
+    auto find_match =
+        [&](std::size_t position)
+        {
+            std::size_t best_length = 0;
+            std::size_t best_distance = 0;
+
+            if (position + 2 >= input.size())
+            {
+                return std::pair{
+                    best_length,
+                    best_distance};
+            }
+
+            const std::uint32_t hash =
+                hash3(input.data() + position);
+
+            int candidate =
+                head[hash];
+
+            std::size_t chain_count = 0;
+
+            while (
+                candidate >= 0 &&
+                chain_count < MAX_CHAIN_LENGTH)
+            {
+                const std::size_t candidate_position =
+                    static_cast<std::size_t>(
+                        candidate);
+
+                if (candidate_position >= position)
+                {
+                    break;
+                }
+
+                const std::size_t distance =
+                    position - candidate_position;
+
+                if (distance > WINDOW_SIZE)
+                {
+                    break;
+                }
+
+                const std::size_t maximum =
+                    std::min(
+                        MAX_MATCH_LENGTH,
+                        input.size() - position);
+
+                std::size_t length = 0;
+
+                while (
+                    length < maximum &&
+                    input[position + length] ==
+                        input[candidate_position + length])
+                {
+                    ++length;
+                }
+
+                if (length > best_length)
+                {
+                    best_length = length;
+                    best_distance = distance;
+
+                    if (length == maximum)
+                    {
+                        break;
+                    }
+                }
+
+                candidate =
+                    previous[candidate_position];
+
+                ++chain_count;
+            }
+
+            return std::pair{
+                best_length,
+                best_distance};
         };
 
     std::size_t position = 0;
 
-    while (position < size)
+    while (position < input.size())
     {
         const std::size_t control_offset =
             output.size();
@@ -228,120 +272,112 @@ bool compress(
 
         std::uint8_t control = 0;
 
-        std::size_t token_count = 0;
-
-        while (token_count < 8 &&
-               position < size)
+        // Four 2-bit tokens per control byte.
+        for (unsigned int token = 0;
+             token < 4 &&
+             position < input.size();
+             ++token)
         {
-            std::size_t best_length = 0;
-            std::size_t best_distance = 0;
+            const auto [match_length, match_distance] =
+                find_match(position);
 
-            if (position + 2 < size)
+            if (match_length >= MIN_MATCH_LENGTH)
             {
-                const std::uint32_t hash =
-                    hash3(
-                        input.data() + position);
-
-                int candidate =
-                    head[hash];
-
-                std::size_t chain_count = 0;
-
-                while (
-                    candidate >= 0 &&
-                    chain_count <
-                        MAX_CHAIN_LENGTH)
-                {
-                    const std::size_t candidate_pos =
-                        static_cast<std::size_t>(
-                            candidate);
-
-                    if (candidate_pos >= position)
-                    {
-                        break;
-                    }
-
-                    const std::size_t distance =
-                        position - candidate_pos;
-
-                    if (distance >
-                        WINDOW_SIZE)
-                    {
-                        break;
-                    }
-
-                    std::size_t length = 0;
-
-                    const std::size_t maximum =
-                        std::min(
-                            MAX_MATCH_LENGTH,
-                            size - position);
-
-                    while (
-                        length < maximum &&
-                        input[position + length] ==
-                            input[candidate_pos + length])
-                    {
-                        ++length;
-                    }
-
-                    if (length > best_length)
-                    {
-                        best_length = length;
-                        best_distance = distance;
-
-                        if (length == maximum)
-                        {
-                            break;
-                        }
-                    }
-
-                    candidate =
-                        previous[candidate_pos];
-
-                    ++chain_count;
-                }
-            }
-
-            if (best_length >= MIN_MATCH_LENGTH)
-            {
+                // Token type 01 = LZ match.
                 control |=
                     static_cast<std::uint8_t>(
-                        1u << token_count);
+                        1u << (token * 2u));
 
                 write_u16(
                     output,
                     static_cast<std::uint16_t>(
-                        best_distance));
+                        match_distance));
 
                 write_u8(
                     output,
                     static_cast<std::uint8_t>(
-                        best_length -
+                        match_length -
                         MIN_MATCH_LENGTH));
 
                 const std::size_t end =
-                    position + best_length;
+                    position + match_length;
 
                 while (position < end)
                 {
                     insert_position(position);
                     ++position;
                 }
+
+                continue;
             }
-            else
+
+            // Find a run of bytes which do not begin
+            // a useful match.
+            const std::size_t run_start =
+                position;
+
+            ++position;
+            insert_position(run_start);
+
+            while (position < input.size())
             {
+                const auto [next_length, next_distance] =
+                    find_match(position);
+
+                (void)next_distance;
+
+                if (next_length >= MIN_MATCH_LENGTH)
+                {
+                    break;
+                }
+
+                insert_position(position);
+                ++position;
+
+                if (position - run_start >= 255)
+                {
+                    break;
+                }
+            }
+
+            const std::size_t run_length =
+                position - run_start;
+
+            if (run_length >= 3)
+            {
+                // Token type 10 = literal run.
+                control |=
+                    static_cast<std::uint8_t>(
+                        2u << (token * 2u));
+
                 write_u8(
                     output,
                     static_cast<std::uint8_t>(
-                        input[position]));
+                        run_length));
 
-                insert_position(position);
-
-                ++position;
+                for (std::size_t i = 0;
+                     i < run_length;
+                     ++i)
+                {
+                    output.push_back(
+                        input[run_start + i]);
+                }
             }
+            else
+            {
+                // Token type 00 = individual literals.
+                position = run_start;
 
-            ++token_count;
+                for (std::size_t i = 0;
+                     i < run_length;
+                     ++i)
+                {
+                    output.push_back(
+                        input[position]);
+
+                    ++position;
+                }
+            }
         }
 
         output[control_offset] =
@@ -436,15 +472,24 @@ bool decompress(
         const std::uint8_t control =
             read_u8(input, position);
 
-        for (unsigned int bit = 0;
-             bit < 8 &&
+        for (unsigned int token = 0;
+             token < 4 &&
              output.size() <
                  static_cast<std::size_t>(
                      original_size);
-             ++bit)
+             ++token)
         {
-            if ((control & (1u << bit)) == 0)
+            const std::uint8_t type =
+                static_cast<std::uint8_t>(
+                    (control >>
+                     (token * 2u)) &
+                    0x03u);
+
+            switch (type)
             {
+            case 0:
+            {
+                // Individual literal.
                 if (position >= input.size())
                 {
                     set_error(
@@ -457,61 +502,137 @@ bool decompress(
                 output.push_back(
                     input[position++]);
 
-                continue;
+                break;
             }
 
-            if (position + 3 >
-                input.size())
+            case 1:
             {
+                // LZ match.
+                if (position + 3 >
+                    input.size())
+                {
+                    set_error(
+                        error,
+                        "Truncated RIPC match.");
+
+                    return false;
+                }
+
+                const std::uint16_t distance =
+                    read_u16(
+                        input,
+                        position);
+
+                const std::uint8_t length_code =
+                    read_u8(
+                        input,
+                        position);
+
+                const std::size_t length =
+                    static_cast<std::size_t>(
+                        length_code) +
+                    MIN_MATCH_LENGTH;
+
+                if (distance == 0 ||
+                    distance > output.size())
+                {
+                    set_error(
+                        error,
+                        "Invalid RIPC distance.");
+
+                    return false;
+                }
+
+                if (output.size() + length >
+                    static_cast<std::size_t>(
+                        original_size))
+                {
+                    set_error(
+                        error,
+                        "RIPC match exceeds output size.");
+
+                    return false;
+                }
+
+                const std::size_t source =
+                    output.size() - distance;
+
+                for (std::size_t i = 0;
+                     i < length;
+                     ++i)
+                {
+                    output.push_back(
+                        output[source + i]);
+                }
+
+                break;
+            }
+
+            case 2:
+            {
+                // Literal run.
+                if (position >= input.size())
+                {
+                    set_error(
+                        error,
+                        "Truncated RIPC literal run.");
+
+                    return false;
+                }
+
+                const std::size_t length =
+                    read_u8(
+                        input,
+                        position);
+
+                if (length == 0)
+                {
+                    set_error(
+                        error,
+                        "Invalid RIPC literal run.");
+
+                    return false;
+                }
+
+                if (position + length >
+                    input.size())
+                {
+                    set_error(
+                        error,
+                        "Truncated RIPC literal data.");
+
+                    return false;
+                }
+
+                if (output.size() + length >
+                    static_cast<std::size_t>(
+                        original_size))
+                {
+                    set_error(
+                        error,
+                        "RIPC literal run exceeds output size.");
+
+                    return false;
+                }
+
+                for (std::size_t i = 0;
+                     i < length;
+                     ++i)
+                {
+                    output.push_back(
+                        input[position++]);
+                }
+
+                break;
+            }
+
+            case 3:
+            default:
                 set_error(
                     error,
-                    "Truncated RIPC match.");
+                    "Unknown RIPC token type.");
 
                 return false;
-            }
-
-            const std::uint16_t distance =
-                read_u16(input, position);
-
-            const std::uint8_t length_code =
-                read_u8(input, position);
-
-            const std::size_t length =
-                static_cast<std::size_t>(
-                    length_code) +
-                MIN_MATCH_LENGTH;
-
-            if (distance == 0 ||
-                distance >
-                    output.size())
-            {
-                set_error(
-                    error,
-                    "Invalid RIPC distance.");
-
-                return false;
-            }
-
-            if (output.size() + length >
-                static_cast<std::size_t>(
-                    original_size))
-            {
-                set_error(
-                    error,
-                    "RIPC match exceeds output size.");
-
-                return false;
-            }
-
-            const std::size_t source =
-                output.size() - distance;
-
-            for (std::size_t i = 0;
-                 i < length;
-                 ++i)
-            {
-                output.push_back(
-                    output[source + i]);
             }
         }
     }
