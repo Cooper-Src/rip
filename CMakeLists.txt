@@ -38,6 +38,9 @@ add_executable(rip
     src/main.cpp
     src/archive.cpp
     src/crc32.cpp
+    src/compression.cpp
+    src/token_codec.cpp
+    src/token_huffman.cpp
 )
 
 target_include_directories(rip
@@ -150,12 +153,15 @@ if(WIN32)
     endif()
 
     add_executable(
-        rip-gui
-        WIN32
-        src/gui_main.cpp
-        src/archive.cpp
-        src/crc32.cpp
-    )
+    rip-gui
+    WIN32
+    src/gui_main.cpp
+    src/archive.cpp
+    src/crc32.cpp
+    src/compression.cpp
+    src/token_codec.cpp
+    src/token_huffman.cpp
+)
 
     target_include_directories(
         rip-gui

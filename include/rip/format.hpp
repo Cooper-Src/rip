@@ -21,10 +21,11 @@ namespace rip
     // Compression methods
 
     enum CompressionMethod : std::uint8_t
-    {
-        COMPRESSION_STORE = 0,
-        COMPRESSION_DEFLATE = 1
-    };
+{
+    COMPRESSION_STORE = 0,
+    COMPRESSION_DEFLATE = 1,
+    COMPRESSION_RIPC = 2
+};
 
     // -----------------------------------------------------------------------------
     // Logical format structures

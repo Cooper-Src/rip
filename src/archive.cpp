@@ -3,6 +3,7 @@
 #include "rip/archive.hpp"
 #include "rip/crc32.hpp"
 #include "rip/format.hpp"
+#include "rip/compression.hpp"
 
 #include <algorithm>
 #include <array>
@@ -575,12 +576,29 @@ namespace rip
                 }
 
                 if (entry.compression != COMPRESSION_STORE &&
-                    entry.compression != COMPRESSION_DEFLATE)
+                    entry.compression != COMPRESSION_DEFLATE &&
+                    entry.compression != COMPRESSION_RIPC)
                 {
                     throw std::runtime_error(
                         "Unsupported compression method: " +
                         std::to_string(entry.compression));
                 }
+                if (entry.compression != COMPRESSION_STORE &&
+    entry.compression != COMPRESSION_DEFLATE &&
+    entry.compression != COMPRESSION_RIPC)
+{
+    throw std::runtime_error(
+        "Unsupported compression method: " +
+        std::to_string(entry.compression));
+}
+
+if (entry.compression == COMPRESSION_STORE &&
+    entry.original_size != entry.compressed_size)
+{
+    throw std::runtime_error(
+        "Invalid stored file size: " +
+        std::to_string(entry.original_size));
+}
 
                 if (entry.compression == COMPRESSION_STORE &&
                     entry.original_size != entry.compressed_size)
@@ -710,111 +728,152 @@ namespace rip
         }
 
         void collect_files(
-    const fs::path& input,
-    std::vector<PendingFile>& files,
-    const ProgressCallback& progress,
-    std::uint64_t total_files,
-    std::uint64_t& processed_files)
-{
-    auto prepare_file =
-        [&](PendingFile& file)
+            const fs::path &input,
+            std::vector<PendingFile> &files,
+            const ProgressCallback &progress,
+            std::uint64_t total_files,
+            std::uint64_t &processed_files)
         {
-            file.data =
-                read_file(file.source);
-
-            file.original_size =
-                static_cast<std::uint64_t>(
-                    file.data.size());
-
-            file.checksum =
-                crc32(file.data);
-
-            file.compression =
-                COMPRESSION_STORE;
-
-            if (!file.data.empty())
+            auto prepare_file =
+                [&](PendingFile &file)
             {
-                auto compressed =
-                    compress_deflate(file.data);
+                file.data =
+                    read_file(file.source);
 
-                if (compressed.size() <
-                    file.data.size())
+                file.original_size =
+                    static_cast<std::uint64_t>(
+                        file.data.size());
+
+                file.checksum =
+                    crc32(file.data);
+
+                file.compression =
+                    COMPRESSION_STORE;
+
+                if (!file.data.empty())
                 {
+                    std::vector<std::byte>
+                        best_data =
+                            file.data;
+
+                    std::uint8_t best_method =
+                        COMPRESSION_STORE;
+
+                    // DEFLATE
+                    {
+                        auto compressed =
+                            compress_deflate(
+                                file.data);
+
+                        if (compressed.size() <
+                            best_data.size())
+                        {
+                            best_data =
+                                std::move(compressed);
+
+                            best_method =
+                                COMPRESSION_DEFLATE;
+                        }
+                    }
+
+                    // RIPC
+                    {
+                        std::vector<std::byte>
+                            compressed;
+
+                        std::string ripc_error;
+
+                        if (rip::compression::compress(
+                                file.data,
+                                compressed,
+                                &ripc_error))
+                        {
+                            if (compressed.size() <
+                                best_data.size())
+                            {
+                                best_data =
+                                    std::move(compressed);
+
+                                best_method =
+                                    COMPRESSION_RIPC;
+                            }
+                        }
+                    }
+
                     file.data =
-                        std::move(compressed);
+                        std::move(best_data);
 
                     file.compression =
-                        COMPRESSION_DEFLATE;
+                        best_method;
+                }
+
+                ++processed_files;
+
+                if (progress)
+                {
+                    progress(
+                        processed_files,
+                        total_files,
+                        file.source,
+                        ArchiveProgressStage::Compressing,
+                        file.compression);
+                }
+            };
+
+            if (fs::is_regular_file(input))
+            {
+                PendingFile file;
+
+                file.source =
+                    input;
+
+                file.archive_path =
+                    input.filename().generic_string();
+
+                prepare_file(file);
+
+                files.push_back(
+                    std::move(file));
+
+                return;
+            }
+
+            if (!fs::is_directory(input))
+            {
+                return;
+            }
+
+            for (const auto &entry :
+                 fs::directory_iterator(input))
+            {
+                if (entry.is_regular_file())
+                {
+                    PendingFile file;
+
+                    file.source =
+                        entry.path();
+
+                    file.archive_path =
+                        entry.path()
+                            .lexically_relative(input)
+                            .generic_string();
+
+                    prepare_file(file);
+
+                    files.push_back(
+                        std::move(file));
+                }
+                else if (entry.is_directory())
+                {
+                    collect_files(
+                        entry.path(),
+                        files,
+                        progress,
+                        total_files,
+                        processed_files);
                 }
             }
-
-            ++processed_files;
-
-            if (progress)
-            {
-                progress(
-                    processed_files,
-                    total_files,
-                    file.source,
-                    ArchiveProgressStage::Compressing,
-                    file.compression);
-            }
-        };
-
-    if (fs::is_regular_file(input))
-    {
-        PendingFile file;
-
-        file.source =
-            input;
-
-        file.archive_path =
-            input.filename().generic_string();
-
-        prepare_file(file);
-
-        files.push_back(
-            std::move(file));
-
-        return;
-    }
-
-    if (!fs::is_directory(input))
-    {
-        return;
-    }
-
-    for (const auto& entry :
-         fs::directory_iterator(input))
-    {
-        if (entry.is_regular_file())
-        {
-            PendingFile file;
-
-            file.source =
-                entry.path();
-
-            file.archive_path =
-                entry.path()
-                    .lexically_relative(input)
-                    .generic_string();
-
-            prepare_file(file);
-
-            files.push_back(
-                std::move(file));
         }
-        else if (entry.is_directory())
-        {
-            collect_files(
-                entry.path(),
-                files,
-                progress,
-                total_files,
-                processed_files);
-        }
-    }
-}
 
     } // namespace
 
@@ -1208,7 +1267,11 @@ namespace rip
             for (const auto &[entry, path] : entries)
             {
                 const char *compression_name =
-                    entry.compression == COMPRESSION_DEFLATE
+                    entry.compression ==
+                            COMPRESSION_RIPC
+                        ? "RIPC"
+                    : entry.compression ==
+                            COMPRESSION_DEFLATE
                         ? "DEFLATE"
                         : "STORE";
 
@@ -1218,7 +1281,8 @@ namespace rip
                     << entry.original_size
                     << " bytes";
 
-                if (entry.compression == COMPRESSION_DEFLATE)
+                if (entry.compression !=
+                    COMPRESSION_STORE)
                 {
                     std::cout
                         << " -> "
@@ -1337,6 +1401,23 @@ namespace rip
                             data,
                             entry.original_size);
                 }
+                else if (entry.compression ==
+                         COMPRESSION_RIPC)
+                {
+                    std::string ripc_error;
+
+                    if (!rip::compression::decompress(
+                            data,
+                            original_data,
+                            &ripc_error))
+                    {
+                        throw std::runtime_error(
+                            "RIPC decompression failed for " +
+                            path +
+                            ": " +
+                            ripc_error);
+                    }
+                }
                 else
                 {
                     throw std::runtime_error(
@@ -1452,11 +1533,12 @@ namespace rip
                 if (entry.compression !=
                         COMPRESSION_STORE &&
                     entry.compression !=
-                        COMPRESSION_DEFLATE)
+                        COMPRESSION_DEFLATE &&
+                    entry.compression !=
+                        COMPRESSION_RIPC)
                 {
                     throw std::runtime_error(
-                        "Unsupported compression method: " +
-                        std::to_string(entry.compression));
+                        "Unsupported compression method.");
                 }
 
                 if (entry.compression ==
@@ -1523,6 +1605,23 @@ namespace rip
                         decompress_deflate(
                             data,
                             entry.original_size);
+                }
+                else if (entry.compression ==
+                         COMPRESSION_RIPC)
+                {
+                    std::string ripc_error;
+
+                    if (!rip::compression::decompress(
+                            data,
+                            original_data,
+                            &ripc_error))
+                    {
+                        throw std::runtime_error(
+                            "RIPC decompression failed for " +
+                            archive_path_string +
+                            ": " +
+                            ripc_error);
+                    }
                 }
                 else
                 {
