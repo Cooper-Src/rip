@@ -818,6 +818,7 @@ bool huffman_encode_tokens(
         }
 
         case TokenType::Match:
+case TokenType::MatchRepeat:
         {
             if (token.distance == 0 ||
                 token.length < 3)

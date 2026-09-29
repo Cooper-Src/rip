@@ -72,7 +72,7 @@ bool test_data(
 int main()
 {
     std::cout
-        << "RIPC v0.7 compression test\n"
+        << "RIPC v0.8 compression test\n"
         << "==========================\n\n";
 
     std::string text =
@@ -216,7 +216,7 @@ for (const auto level : levels)
 }
 
     std::cout
-        << "\nAll RIPC v0.7 tests passed.\n";
+        << "\nAll RIPC v0.8 tests passed.\n";
 
     return 0;
 }

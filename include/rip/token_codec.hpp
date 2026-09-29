@@ -13,7 +13,8 @@ enum class TokenType : std::uint8_t
 {
     Literal = 0,
     Match = 1,
-    LiteralRun = 2
+    LiteralRun = 2,
+    MatchRepeat = 3
 };
 
 struct Token

@@ -309,7 +309,7 @@ void print_result(
 int main()
 {
     std::cout
-        << "RIPC v0.6 Token Huffman Benchmark\n"
+        << "RIPC v0.8 Token Huffman Benchmark\n"
         << "==================================\n";
 
     print_result(

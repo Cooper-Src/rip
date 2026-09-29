@@ -11,7 +11,7 @@ int main()
     using rip::compression::TokenType;
 
     std::cout
-        << "RIPC v0.6 token codec test\n"
+        << "RIPC v0.8 token codec test\n"
         << "==========================\n\n";
 
     std::vector<Token> original;
@@ -48,6 +48,17 @@ int main()
     match.length = 65'000;
 
     original.push_back(match);
+
+    Token repeated_match;
+
+repeated_match.type =
+    TokenType::MatchRepeat;
+
+repeated_match.distance = 1;
+repeated_match.length = 5000;
+
+original.push_back(
+    repeated_match);
 
     std::vector<std::byte> encoded;
     std::string error;

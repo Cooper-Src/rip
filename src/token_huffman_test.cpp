@@ -171,7 +171,7 @@ bool run_test()
 int main()
 {
     std::cout
-        << "RIPC v0.6 token Huffman test\n"
+        << "RIPC v0.8 token Huffman test\n"
         << "============================\n\n";
 
     if (!run_test())
