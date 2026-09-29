@@ -1,0 +1,10 @@
+build/
+gui/node_modules/
+
+*.obj
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.exe
+*.dll
