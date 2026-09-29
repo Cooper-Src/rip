@@ -1,5 +1,7 @@
 build/
 gui/node_modules/
+test
+extracted
 
 *.obj
 *.pdb
