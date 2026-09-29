@@ -5,16 +5,64 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <random>
 #include <string>
 #include <vector>
+#include <limits>
 
 namespace
 {
 
+namespace fs = std::filesystem;
+
 using Bytes = std::vector<std::byte>;
+
+Bytes read_file(
+    const fs::path& path)
+{
+    std::ifstream file(
+        path,
+        std::ios::binary |
+        std::ios::ate);
+
+    if (!file)
+    {
+        return {};
+    }
+
+    const std::streamsize size =
+        file.tellg();
+
+    if (size < 0)
+    {
+        return {};
+    }
+
+    file.seekg(0);
+
+    Bytes data(
+        static_cast<std::size_t>(
+            size));
+
+    if (!data.empty())
+    {
+        file.read(
+            reinterpret_cast<char*>(
+                data.data()),
+            size);
+    }
+
+    if (!file)
+    {
+        return {};
+    }
+
+    return data;
+}
 
 Bytes make_repetitive_text()
 {
@@ -105,6 +153,7 @@ Bytes make_random_data()
     Bytes data(size);
 
     std::mt19937 generator(0x52495043u);
+
     std::uniform_int_distribution<unsigned int>
         distribution(0, 255);
 
@@ -128,6 +177,13 @@ bool compress_deflate(
         return true;
     }
 
+    if (input.size() >
+        static_cast<std::size_t>(
+            std::numeric_limits<uLong>::max()))
+    {
+        return false;
+    }
+
     const uLong source_size =
         static_cast<uLong>(
             input.size());
@@ -140,7 +196,8 @@ bool compress_deflate(
         static_cast<std::size_t>(
             maximum));
 
-    uLong destination_size = maximum;
+    uLong destination_size =
+        maximum;
 
     const int result =
         ::compress2(
@@ -170,6 +227,7 @@ struct Result
     std::size_t original_size{};
     std::size_t compressed_size{};
     double milliseconds{};
+    bool success{};
 };
 
 Result benchmark_ripc(
@@ -201,7 +259,8 @@ Result benchmark_ripc(
     return {
         input.size(),
         output.size(),
-        milliseconds};
+        milliseconds,
+        true};
 }
 
 Result benchmark_deflate(
@@ -233,13 +292,25 @@ Result benchmark_deflate(
     return {
         input.size(),
         output.size(),
-        milliseconds};
+        milliseconds,
+        true};
 }
 
 void print_result(
     const char* name,
     const Result& result)
 {
+    if (!result.success)
+    {
+        std::cout
+            << std::left
+            << std::setw(10)
+            << name
+            << "FAILED\n";
+
+        return;
+    }
+
     const double ratio =
         result.original_size == 0
             ? 0.0
@@ -275,7 +346,7 @@ void print_result(
 }
 
 void run_case(
-    const char* name,
+    const std::string& name,
     const Bytes& input)
 {
     std::cout
@@ -283,7 +354,7 @@ void run_case(
         << name
         << '\n'
         << std::string(
-               std::char_traits<char>::length(name),
+               name.size(),
                '-')
         << '\n';
 
@@ -291,12 +362,6 @@ void run_case(
         << "Original: "
         << input.size()
         << " bytes\n\n";
-
-    const Result ripc =
-        benchmark_ripc(input);
-
-    const Result deflate =
-        benchmark_deflate(input);
 
     std::cout
         << std::left
@@ -307,6 +372,12 @@ void run_case(
         << "Compressed"
         << "  Ratio     Savings       Time\n";
 
+    const Result ripc =
+        benchmark_ripc(input);
+
+    const Result deflate =
+        benchmark_deflate(input);
+
     print_result(
         "RIPC",
         ripc);
@@ -316,26 +387,122 @@ void run_case(
         deflate);
 }
 
+struct ProjectFile
+{
+    fs::path relative_path;
+};
+
 } // namespace
 
-int main()
+int main(
+    int argc,
+    char** argv)
 {
+    (void)argc;
+
     std::cout
         << "RIP Compression Benchmark\n"
         << "=========================\n"
         << "RIPC v0.3 vs DEFLATE\n";
 
     run_case(
-        "Repetitive text",
+        "Synthetic: repetitive text",
         make_repetitive_text());
 
     run_case(
-        "Source code",
+        "Synthetic: source code",
         make_source_code());
 
     run_case(
-        "Random data",
+        "Synthetic: random data",
         make_random_data());
+
+    fs::path executable_path =
+        fs::absolute(argv[0]);
+
+    fs::path project_root =
+        executable_path
+            .parent_path()
+            .parent_path()
+            .parent_path();
+
+    std::cout
+        << '\n'
+        << "Actual RIP project files\n"
+        << "========================\n";
+
+    const std::vector<ProjectFile> project_files = {
+        {"CMakeLists.txt"},
+        {"include/rip/archive.hpp"},
+        {"include/rip/compression.hpp"},
+        {"include/rip/crc32.hpp"},
+        {"include/rip/format.hpp"},
+        {"src/archive.cpp"},
+        {"src/compression.cpp"},
+        {"src/compression_bench.cpp"},
+        {"src/compression_test.cpp"},
+        {"src/crc32.cpp"},
+        {"src/gui_main.cpp"},
+        {"gui/src/main.ts"},
+        {"gui/src/style.css"}
+    };
+
+    Bytes combined;
+
+    for (const auto& project_file :
+         project_files)
+    {
+        const fs::path path =
+            project_root /
+            project_file.relative_path;
+
+        const Bytes data =
+            read_file(path);
+
+        if (data.empty())
+        {
+            if (!fs::exists(path))
+            {
+                std::cout
+                    << "\nSKIP: "
+                    << project_file.relative_path
+                    << " (not found)\n";
+            }
+            else
+            {
+                std::cout
+                    << "\nSKIP: "
+                    << project_file.relative_path
+                    << " (empty)\n";
+            }
+
+            continue;
+        }
+
+        run_case(
+            "File: " +
+                project_file.relative_path.generic_string(),
+            data);
+
+        combined.insert(
+            combined.end(),
+            data.begin(),
+            data.end());
+
+        // Separating files prevents a file boundary
+        // from becoming an artificial repeated sequence.
+        combined.push_back(
+            static_cast<std::byte>('\n'));
+        combined.push_back(
+            static_cast<std::byte>('\n'));
+    }
+
+    if (!combined.empty())
+    {
+        run_case(
+            "Combined RIP source",
+            combined);
+    }
 
     std::cout
         << '\n'
