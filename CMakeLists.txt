@@ -233,6 +233,7 @@ add_executable(
     rip-compression-test
     src/compression_test.cpp
     src/compression.cpp
+    src/token_codec.cpp
 )
 
 target_include_directories(
@@ -262,6 +263,7 @@ add_executable(
     rip-compression-bench
     src/compression_bench.cpp
     src/compression.cpp
+    src/token_codec.cpp
 )
 
 target_include_directories(
