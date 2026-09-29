@@ -257,3 +257,38 @@ else()
             -Wpedantic
     )
 endif()
+
+add_executable(
+    rip-compression-bench
+    src/compression_bench.cpp
+    src/compression.cpp
+)
+
+target_include_directories(
+    rip-compression-bench
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(
+    rip-compression-bench
+    PRIVATE
+        zlib
+)
+
+if(MSVC)
+    target_compile_options(
+        rip-compression-bench
+        PRIVATE
+            /W4
+            /permissive-
+    )
+else()
+    target_compile_options(
+        rip-compression-bench
+        PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+    )
+endif()
