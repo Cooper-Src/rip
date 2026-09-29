@@ -16,7 +16,9 @@ namespace
 constexpr char MAGIC[4] = {'R', 'P', 'C', '1'};
 
 constexpr std::size_t WINDOW_SIZE = 65535;
-constexpr std::size_t MAX_MATCH_LENGTH = 258;
+constexpr std::size_t MAX_MATCH_LENGTH = 65'794;
+constexpr std::uint8_t EXTENDED_LENGTH_MARKER = 0xFF;
+constexpr std::size_t EXTENDED_LENGTH_BASE = 259;
 constexpr std::size_t MIN_MATCH_LENGTH = 3;
 constexpr std::size_t MAX_CHAIN_LENGTH = 64;
 
@@ -289,15 +291,30 @@ bool compress(
                         1u << (token * 2u));
 
                 write_u16(
-                    output,
-                    static_cast<std::uint16_t>(
-                        match_distance));
+    output,
+    static_cast<std::uint16_t>(
+        match_distance));
 
-                write_u8(
-                    output,
-                    static_cast<std::uint8_t>(
-                        match_length -
-                        MIN_MATCH_LENGTH));
+if (match_length <= 258)
+{
+    write_u8(
+        output,
+        static_cast<std::uint8_t>(
+            match_length -
+            MIN_MATCH_LENGTH));
+}
+else
+{
+    write_u8(
+        output,
+        EXTENDED_LENGTH_MARKER);
+
+    write_u16(
+        output,
+        static_cast<std::uint16_t>(
+            match_length -
+            EXTENDED_LENGTH_BASE));
+}
 
                 const std::size_t end =
                     position + match_length;
@@ -524,14 +541,42 @@ bool decompress(
                         position);
 
                 const std::uint8_t length_code =
-                    read_u8(
-                        input,
-                        position);
+    read_u8(
+        input,
+        position);
 
-                const std::size_t length =
-                    static_cast<std::size_t>(
-                        length_code) +
-                    MIN_MATCH_LENGTH;
+std::size_t length = 0;
+
+if (length_code ==
+    EXTENDED_LENGTH_MARKER)
+{
+    if (position + 2 >
+        input.size())
+    {
+        set_error(
+            error,
+            "Truncated RIPC extended match length.");
+
+        return false;
+    }
+
+    const std::uint16_t extended_length =
+        read_u16(
+            input,
+            position);
+
+    length =
+        EXTENDED_LENGTH_BASE +
+        static_cast<std::size_t>(
+            extended_length);
+}
+else
+{
+    length =
+        static_cast<std::size_t>(
+            length_code) +
+        MIN_MATCH_LENGTH;
+}
 
                 if (distance == 0 ||
                     distance > output.size())

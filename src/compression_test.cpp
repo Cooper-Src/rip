@@ -9,7 +9,7 @@
 int main()
 {
     std::cout
-        << "RIPC v0.2 compression test\n"
+        << "RIPC v0.3 compression test\n"
         << "==========================\n\n";
 
     const std::string text =
