@@ -1,5 +1,6 @@
 #include "rip/compression.hpp"
 #include "rip/token_codec.hpp"
+#include "rip/token_huffman.hpp"
 
 #include <algorithm>
 #include <array>
@@ -52,6 +53,9 @@ constexpr std::size_t HUFFMAN_SYMBOLS =
 
 constexpr std::uint8_t FLAG_HUFFMAN =
     0x01;
+
+constexpr std::uint8_t FLAG_TOKEN_HUFFMAN =
+    0x02;
 
 using Bytes =
     std::vector<std::byte>;
@@ -1458,32 +1462,6 @@ bool huffman_decompress(
     return true;
 }
 
-bool validate_token_codec_round_trip(
-    std::span<const std::byte> encoded_tokens,
-    std::vector<std::byte>& canonical_tokens,
-    std::string* error)
-{
-    std::vector<Token> tokens;
-
-    if (!decode_tokens(
-            encoded_tokens,
-            tokens,
-            error))
-    {
-        return false;
-    }
-
-    if (!encode_tokens(
-            tokens,
-            canonical_tokens,
-            error))
-    {
-        return false;
-    }
-
-    return true;
-}
-
 } // namespace
 
 bool compress(
@@ -1496,25 +1474,7 @@ bool compress(
     const auto raw =
         lz_compress(input);
 
-    std::vector<std::byte> canonical_tokens;
-
-if (!validate_token_codec_round_trip(
-        raw,
-        canonical_tokens,
-        error))
-{
-    return false;
-}
-
-if (canonical_tokens != raw)
-{
-    set_error(
-        error,
-        "RIPC token codec changed the canonical token stream.");
-
-    return false;
-}
-
+    // Existing v0.5 byte-oriented Huffman path.
     std::vector<std::byte>
         huffman_payload;
 
@@ -1523,17 +1483,85 @@ if (canonical_tokens != raw)
             raw,
             huffman_payload);
 
-    const bool use_huffman =
+    // New v0.6 token-aware Huffman path.
+    std::vector<Token>
+        tokens;
+
+    if (!decode_tokens(
+            raw,
+            tokens,
+            error))
+    {
+        return false;
+    }
+
+    std::vector<std::byte>
+        token_huffman_payload;
+
+    const bool token_huffman_valid =
+        huffman_encode_tokens(
+            tokens,
+            token_huffman_payload,
+            error);
+
+    const bool use_byte_huffman =
         huffman_valid &&
         huffman_payload.size() <
             raw.size();
 
+    const bool use_token_huffman =
+        token_huffman_valid &&
+        token_huffman_payload.size() <
+            raw.size();
+
+    std::uint8_t flags = 0;
+
+    if (use_byte_huffman &&
+        use_token_huffman)
+    {
+        if (token_huffman_payload.size() <
+            huffman_payload.size())
+        {
+            flags =
+                FLAG_TOKEN_HUFFMAN;
+        }
+        else
+        {
+            flags =
+                FLAG_HUFFMAN;
+        }
+    }
+    else if (use_token_huffman)
+    {
+        flags =
+            FLAG_TOKEN_HUFFMAN;
+    }
+    else if (use_byte_huffman)
+    {
+        flags =
+            FLAG_HUFFMAN;
+    }
+
+    const std::vector<std::byte>*
+        selected_payload =
+            &raw;
+
+    if (flags ==
+        FLAG_HUFFMAN)
+    {
+        selected_payload =
+            &huffman_payload;
+    }
+    else if (flags ==
+             FLAG_TOKEN_HUFFMAN)
+    {
+        selected_payload =
+            &token_huffman_payload;
+    }
+
     output.reserve(
         16 +
-        (
-            use_huffman
-                ? huffman_payload.size()
-                : raw.size()));
+        selected_payload->size());
 
     output.insert(
         output.end(),
@@ -1550,9 +1578,7 @@ if (canonical_tokens != raw)
 
     write_u8(
         output,
-        use_huffman
-            ? FLAG_HUFFMAN
-            : 0);
+        flags);
 
     write_u16(
         output,
@@ -1563,22 +1589,10 @@ if (canonical_tokens != raw)
         static_cast<std::uint64_t>(
             input.size()));
 
-    if (use_huffman)
-    {
-        output.insert(
-            output.end(),
-            huffman_payload.begin(),
-            huffman_payload.end());
-    }
-    else
-    {
-        output.insert(
-            output.end(),
-            raw.begin(),
-            raw.end());
-    }
-
-    (void)error;
+    output.insert(
+        output.end(),
+        selected_payload->begin(),
+        selected_payload->end());
 
     return true;
 }
@@ -1622,7 +1636,8 @@ bool decompress(
             input,
             position);
 
-    if (version != RIPC_VERSION)
+    if (version !=
+        RIPC_VERSION)
     {
         set_error(
             error,
@@ -1636,12 +1651,29 @@ bool decompress(
             input,
             position);
 
+    const std::uint8_t supported_flags =
+        FLAG_HUFFMAN |
+        FLAG_TOKEN_HUFFMAN;
+
     if ((flags &
-         ~FLAG_HUFFMAN) != 0)
+         static_cast<std::uint8_t>(
+             ~supported_flags)) != 0)
     {
         set_error(
             error,
             "Unsupported RIPC flags.");
+
+        return false;
+    }
+
+    if ((flags &
+         FLAG_HUFFMAN) != 0 &&
+        (flags &
+         FLAG_TOKEN_HUFFMAN) != 0)
+    {
+        set_error(
+            error,
+            "Conflicting RIPC compression flags.");
 
         return false;
     }
@@ -1658,6 +1690,40 @@ bool decompress(
     const auto payload =
         input.subspan(position);
 
+    // v0.6 token-aware Huffman.
+    if ((flags &
+         FLAG_TOKEN_HUFFMAN) != 0)
+    {
+        std::vector<Token>
+            tokens;
+
+        if (!huffman_decode_tokens(
+                payload,
+                tokens,
+                error))
+        {
+            return false;
+        }
+
+        std::vector<std::byte>
+            raw_tokens;
+
+        if (!encode_tokens(
+                tokens,
+                raw_tokens,
+                error))
+        {
+            return false;
+        }
+
+        return lz_decompress(
+            raw_tokens,
+            original_size,
+            output,
+            error);
+    }
+
+    // v0.5 byte-oriented Huffman.
     if ((flags &
          FLAG_HUFFMAN) != 0)
     {
@@ -1679,6 +1745,7 @@ bool decompress(
             error);
     }
 
+    // Raw LZ token stream.
     return lz_decompress(
         payload,
         original_size,

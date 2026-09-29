@@ -234,6 +234,7 @@ add_executable(
     src/compression_test.cpp
     src/compression.cpp
     src/token_codec.cpp
+    src/token_huffman.cpp
 )
 
 target_include_directories(
@@ -264,6 +265,7 @@ add_executable(
     src/compression_bench.cpp
     src/compression.cpp
     src/token_codec.cpp
+    src/token_huffman.cpp
 )
 
 target_include_directories(
