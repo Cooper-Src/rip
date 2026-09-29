@@ -353,3 +353,33 @@ else()
             -Wpedantic
     )
 endif()
+
+add_executable(
+    rip-token-huffman-bench
+    src/token_huffman_bench.cpp
+    src/token_huffman.cpp
+    src/token_codec.cpp
+)
+
+target_include_directories(
+    rip-token-huffman-bench
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+if(MSVC)
+    target_compile_options(
+        rip-token-huffman-bench
+        PRIVATE
+            /W4
+            /permissive-
+    )
+else()
+    target_compile_options(
+        rip-token-huffman-bench
+        PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+    )
+endif()

@@ -1,4 +1,5 @@
 #include "rip/compression.hpp"
+#include "rip/token_codec.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1457,6 +1458,32 @@ bool huffman_decompress(
     return true;
 }
 
+bool validate_token_codec_round_trip(
+    std::span<const std::byte> encoded_tokens,
+    std::vector<std::byte>& canonical_tokens,
+    std::string* error)
+{
+    std::vector<Token> tokens;
+
+    if (!decode_tokens(
+            encoded_tokens,
+            tokens,
+            error))
+    {
+        return false;
+    }
+
+    if (!encode_tokens(
+            tokens,
+            canonical_tokens,
+            error))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 } // namespace
 
 bool compress(
@@ -1468,6 +1495,25 @@ bool compress(
 
     const auto raw =
         lz_compress(input);
+
+    std::vector<std::byte> canonical_tokens;
+
+if (!validate_token_codec_round_trip(
+        raw,
+        canonical_tokens,
+        error))
+{
+    return false;
+}
+
+if (canonical_tokens != raw)
+{
+    set_error(
+        error,
+        "RIPC token codec changed the canonical token stream.");
+
+    return false;
+}
 
     std::vector<std::byte>
         huffman_payload;
