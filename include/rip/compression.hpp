@@ -9,7 +9,7 @@
 namespace rip::compression
 {
 
-constexpr std::uint8_t RIPC_VERSION = 4;
+constexpr std::uint8_t RIPC_VERSION = 5;
 
 bool compress(
     std::span<const std::byte> input,

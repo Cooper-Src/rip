@@ -71,7 +71,7 @@ bool test_data(
 int main()
 {
     std::cout
-        << "RIPC v0.4 compression test\n"
+        << "RIPC v0.5 compression test\n"
         << "==========================\n\n";
 
     std::string text =
@@ -151,7 +151,7 @@ int main()
     }
 
     std::cout
-        << "\nAll RIPC v0.4 tests passed.\n";
+        << "\nAll RIPC v0.5 tests passed.\n";
 
     return 0;
 }
