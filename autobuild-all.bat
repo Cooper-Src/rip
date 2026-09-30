@@ -1,32 +1,87 @@
 @echo off
-setlocal
+setlocal EnableExtensions
 
 cd /d "%~dp0"
 
 echo ========================================
-echo RIP - Building everything
+echo RIP - Build All
 echo ========================================
 echo.
 
-cmake -S .-B build
+where cmake >nul 2>&1
+if errorlevel 1 (
+    echo ERROR: CMake was not found in PATH.
+    echo.
+    pause
+    exit /b 1
+)
 
-cmake --build build --config Release --target rip
-autobuild-gui.bat
-cmake --build build --config Release --target rip-token-codec-test
-cmake --build build --config Release --target rip-token-huffman-test
-cmake --build build --config Release --target rip-compression-test
-cmake --build build --config Release --target rip-compression-bench
-cmake --build build --config Release --target rip
+if not exist "CMakeLists.txt" (
+    echo ERROR: CMakeLists.txt was not found.
+    echo Make sure this script is inside the RIP project folder.
+    echo.
+    pause
+    exit /b 1
+)
+
+if not exist "build\CMakeCache.txt" (
+    echo Build directory is not configured.
+    echo Configuring RIP for Visual Studio 2026 ARM64...
+    echo.
+
+    cmake -S . -B build -G "Visual Studio 18 2026" -A ARM64
+
+    if errorlevel 1 (
+        echo.
+        echo ========================================
+        echo CONFIGURATION FAILED
+        echo ========================================
+        echo.
+        pause
+        exit /b 1
+    )
+
+    echo.
+)
+
+echo Building all RIP targets...
+echo.
+
+cmake --build build --config Release --parallel
 
 if errorlevel 1 (
     echo.
-    echo BUILD FAILED.
+    echo ========================================
+    echo BUILD FAILED
+    echo ========================================
+    echo.
+    pause
     exit /b 1
 )
 
 echo.
 echo ========================================
-echo Build complete.
+echo BUILD SUCCESSFUL
 echo ========================================
+echo.
+
+echo Built output:
+echo   build\Release\
+echo.
+
+if exist "build\Release\rip.exe" (
+    echo   [OK] rip.exe
+) else (
+    echo   [--] rip.exe
+)
+
+if exist "build\Release\rip-gui.exe" (
+    echo   [OK] rip-gui.exe
+) else (
+    echo   [--] rip-gui.exe
+)
+
+echo.
+pause
 
 endlocal

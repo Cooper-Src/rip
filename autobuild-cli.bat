@@ -33,7 +33,7 @@ if not exist "%BUILD_DIR%" (
 
 echo Building RIP CLI...
 echo.
-
+cmake -S .-B build
 cd /d "%RIP_ROOT%"
 if errorlevel 1 (
     echo ERROR: Could not enter RIP directory.
@@ -41,7 +41,6 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-cmake -S .-B build
 cmake --build "%BUILD_DIR%" --config Release --target rip
 if errorlevel 1 (
     echo.
@@ -59,6 +58,3 @@ echo.
 echo Executable:
 echo %BUILD_DIR%\Release\rip.exe
 echo.
-
-pause
-exit /b 0

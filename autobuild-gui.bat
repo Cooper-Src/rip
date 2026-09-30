@@ -81,6 +81,3 @@ echo.
 echo Executable:
 echo %BUILD_DIR%\Release\rip-gui.exe
 echo.
-
-pause
-exit /b 0
