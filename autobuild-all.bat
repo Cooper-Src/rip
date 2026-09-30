@@ -8,7 +8,15 @@ echo RIP - Building everything
 echo ========================================
 echo.
 
-cmake --build build --config Release --target ALL_BUILD
+cmake -S .-B build
+
+cmake --build build --config Release --target rip
+autobuild-gui.bat
+cmake --build build --config Release --target rip-token-codec-test
+cmake --build build --config Release --target rip-token-huffman-test
+cmake --build build --config Release --target rip-compression-test
+cmake --build build --config Release --target rip-compression-bench
+cmake --build build --config Release --target rip
 
 if errorlevel 1 (
     echo.

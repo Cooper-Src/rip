@@ -41,7 +41,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-
+cmake -S .-B build
 cmake --build "%BUILD_DIR%" --config Release --target rip
 if errorlevel 1 (
     echo.

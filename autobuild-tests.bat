@@ -9,7 +9,7 @@ echo ========================================
 echo.
 
 set FAILED=0
-
+cmake -S .-B build
 echo [1/5] Token codec test...
 cmake --build build --config Release --target rip-token-codec-test
 if errorlevel 1 set FAILED=1

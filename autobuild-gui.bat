@@ -63,7 +63,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-
+cmake -S .-B build
 cmake --build "%BUILD_DIR%" --config Release --target rip-gui
 if errorlevel 1 (
     echo.
