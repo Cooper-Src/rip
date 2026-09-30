@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-11-vs2026-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake
+          -S .
+          -B build
+          -G "Visual Studio 18 2026"
+          -A ARM64
+          -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          $tests = @(
+            "build/Release/rip-token-codec-test.exe",
+            "build/Release/rip-token-huffman-test.exe",
+            "build/Release/rip-compression-test.exe"
+          )
+
+          foreach ($test in $tests) {
+            Write-Host "Running $test"
+            & $test
+
+            if ($LASTEXITCODE -ne 0) {
+              throw "Test failed: $test"
+            }
+          }
+
+      - name: Package
+        run: cmake --build build --config Release --target package
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: build/rip-*-windows-arm64.zip
