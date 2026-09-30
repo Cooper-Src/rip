@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>RIP Archive Utility</strong><br>
-  A lightweight custom archive format and archive manager built for Windows ARM64.
+  A lightweight custom archive format and archive manager built for Windows ARM64 and x64.
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
     <img src="https://img.shields.io/github/license/Cooper-Src/rip" alt="License">
   </a>
   <img src="https://img.shields.io/badge/C%2B%2B-23-00599C?logo=cplusplus&logoColor=white" alt="C++23">
-  <img src="https://img.shields.io/badge/Platform-Windows%20ARM64-0078D4?logo=windows&logoColor=white" alt="Windows ARM64">
+  <img src="https://img.shields.io/badge/Platform-Windows%20ARM64%20%7C%20x64-0078D4?logo=windows&logoColor=white" alt="Windows ARM64 and x64">
 </p>
 
 RIP is a custom archive utility written in C++23. It provides both a command-line interface and a lightweight native Windows GUI for creating, inspecting, testing, and extracting `.rip` archives.
@@ -27,7 +27,7 @@ The project also includes **RIPC**, a custom compression codec designed specific
 
 - Custom `.rip` archive format
 - C++23 implementation
-- Native Windows ARM64 support
+- Native Windows ARM64 and x64 support
 - Command-line interface
 - WebView2-based Windows GUI
 - Archive creation, listing, testing, inspection, and extraction
@@ -41,15 +41,15 @@ The project also includes **RIPC**, a custom compression codec designed specific
 
 ## Download
 
-Prebuilt Windows ARM64 releases are published on the [Releases](https://github.com/Cooper-Src/rip/releases) page.
+Prebuilt Windows releases are published on the [Releases](https://github.com/Cooper-Src/rip/releases) page.
 
-Each release includes a ZIP containing:
+Each architecture-specific release package includes:
 
 - `rip.exe` — command-line archive utility
 - `rip-gui.exe` — graphical archive manager
 - GUI assets required by `rip-gui.exe`
 
-RIP currently targets **Windows on ARM64**.
+RIP supports **Windows on ARM64 and x64**.
 
 ## Command-line usage
 
@@ -116,7 +116,7 @@ Current functionality includes:
 
 ### Requirements
 
-- Windows 11 ARM64
+- Windows 11
 - Visual Studio 2026 Build Tools
 - C++23 toolchain
 - CMake 3.25 or newer
@@ -124,28 +124,25 @@ Current functionality includes:
 
 The GUI also uses the Microsoft WebView2 SDK. The CMake build downloads the required SDK automatically.
 
-### Configure
+### ARM64
 
 From the repository root:
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 18 2026" -A ARM64
-```
-
-### Build everything
-
-```powershell
 cmake --build build --config Release --parallel
 ```
 
-RIP also includes convenience build scripts:
+### x64
 
-```text
-autobuild-all.bat
-autobuild-cli.bat
-autobuild-gui.bat
-autobuild-tests.bat
+From the repository root:
+
+```powershell
+cmake -S . -B build -G "Visual Studio 18 2026" -A x64
+cmake --build build --config Release --parallel
 ```
+
+RIP also includes convenience build scripts for common local build tasks.
 
 ## Testing
 
@@ -204,6 +201,8 @@ The release workflow:
 3. Packages the CLI, GUI, and GUI assets.
 4. Creates a GitHub Release.
 5. Uploads the ARM64 ZIP automatically.
+
+x64 builds can also be produced directly from source using the x64 CMake configuration above.
 
 ## Project status
 
