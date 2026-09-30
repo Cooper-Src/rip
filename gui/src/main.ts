@@ -525,10 +525,6 @@ app.innerHTML = `
                             <option value="ultra">
                                 Ultra
                             </option>
-
-                            <option value="custom">
-                                Custom
-                            </option>
                         </select>
                     </label>
 
