@@ -1822,16 +1822,17 @@ namespace rip::compression
                 position);
 
         if (version != 5 &&
-            version != 6 &&
-            version != 7 &&
-            version != RIPC_VERSION)
-        {
-            set_error(
-                error,
-                "Unsupported RIPC version.");
+    version != 6 &&
+    version != 7 &&
+    version != 8 &&
+    version != RIPC_VERSION)
+{
+    set_error(
+        error,
+        "Unsupported RIPC version.");
 
-            return false;
-        }
+    return false;
+}
 
         const std::uint8_t flags =
             read_u8(

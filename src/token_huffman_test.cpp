@@ -36,7 +36,9 @@ std::vector<std::byte> materialize(
         }
 
         if (token.type ==
-            rip::compression::TokenType::Match)
+                rip::compression::TokenType::Match ||
+            token.type ==
+                rip::compression::TokenType::MatchRepeat)
         {
             const std::size_t source =
                 output.size() -
@@ -49,10 +51,12 @@ std::vector<std::byte> materialize(
                 output.push_back(
                     output[source + i]);
             }
+
+            continue;
         }
     }
 
-    return output;
+      return output;
 }
 
 bool run_test()
@@ -81,6 +85,16 @@ bool run_test()
 
     original.push_back(
         match);
+
+    Token repeated;
+    repeated.type =
+        TokenType::MatchRepeat;
+
+    repeated.distance = 1;
+    repeated.length = 2500;
+
+    original.push_back(
+        repeated);
 
     Token run;
     run.type =
@@ -156,12 +170,12 @@ bool run_test()
         << " bytes\n";
 
     std::cout
-        << "RTH1 size     : "
+        << "RTH1 v2 size  : "
         << compressed.size()
         << " bytes\n";
 
     std::cout
-        << "Round-trip    : PASS\n";
+        << "Round-trip     : PASS\n";
 
     return true;
 }
@@ -171,7 +185,7 @@ bool run_test()
 int main()
 {
     std::cout
-        << "RIPC v0.8 token Huffman test\n"
+        << "RIPC v0.9 token Huffman test\n"
         << "============================\n\n";
 
     if (!run_test())

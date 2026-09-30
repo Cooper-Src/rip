@@ -216,7 +216,7 @@ for (const auto level : levels)
 }
 
     std::cout
-        << "\nAll RIPC v0.8 tests passed.\n";
+        << "\nAll RIPC v0.9 tests passed.\n";
 
     return 0;
 }
