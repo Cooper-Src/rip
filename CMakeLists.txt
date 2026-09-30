@@ -434,7 +434,7 @@ if(WIN32)
     set(CPACK_PACKAGE_VENDOR "Cooper-Src")
     set(
         CPACK_PACKAGE_DESCRIPTION_SUMMARY
-        "RIP custom archive utility for Windows ARM64"
+        "RIP custom archive utility for Windows"
     )
     set(
         CPACK_PACKAGE_VERSION
@@ -442,7 +442,7 @@ if(WIN32)
     )
     set(
         CPACK_PACKAGE_FILE_NAME
-        "rip-${RIP_RELEASE_VERSION}-windows-arm64"
+        "rip-${RIP_RELEASE_VERSION}-windows-${RIP_WEBVIEW2_ARCH}"
     )
 
     include(CPack)
