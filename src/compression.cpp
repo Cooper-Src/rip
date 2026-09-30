@@ -32,8 +32,16 @@ namespace rip::compression
         constexpr std::size_t WINDOW_SIZE =
             65535;
 
+        /*
+         * The token-Huffman length alphabet currently uses
+         * 17 symbols, with symbol 16 carrying 15 extra bits.
+         * That represents match lengths through 65,538 bytes.
+         *
+         * Keep the LZ matcher inside that range so RIPC never
+         * generates an unrepresentable length symbol.
+         */
         constexpr std::size_t MAX_MATCH_LENGTH =
-            65'793;
+            65'538;
 
         constexpr std::size_t MIN_MATCH_LENGTH =
             3;
