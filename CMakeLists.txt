@@ -391,3 +391,60 @@ else()
             -Wpedantic
     )
 endif()
+
+# --------------------------------------------------------------------------
+# Windows package / release
+# --------------------------------------------------------------------------
+
+if(WIN32)
+
+    install(
+        TARGETS
+            rip
+            rip-gui
+        RUNTIME DESTINATION .
+    )
+
+    install(
+        DIRECTORY
+            "${CMAKE_CURRENT_SOURCE_DIR}/gui/dist/"
+        DESTINATION
+            gui
+    )
+
+    set(
+        RIP_RELEASE_VERSION
+        "${PROJECT_VERSION}"
+    )
+
+    if(DEFINED ENV{GITHUB_REF_NAME})
+
+        string(
+            REGEX REPLACE
+            "^v"
+            ""
+            RIP_RELEASE_VERSION
+            "$ENV{GITHUB_REF_NAME}"
+        )
+
+    endif()
+
+    set(CPACK_GENERATOR "ZIP")
+    set(CPACK_PACKAGE_NAME "rip")
+    set(CPACK_PACKAGE_VENDOR "Cooper-Src")
+    set(
+        CPACK_PACKAGE_DESCRIPTION_SUMMARY
+        "RIP custom archive utility for Windows ARM64"
+    )
+    set(
+        CPACK_PACKAGE_VERSION
+        "${RIP_RELEASE_VERSION}"
+    )
+    set(
+        CPACK_PACKAGE_FILE_NAME
+        "rip-${RIP_RELEASE_VERSION}-windows-arm64"
+    )
+
+    include(CPack)
+
+endif()
