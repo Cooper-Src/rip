@@ -36,7 +36,7 @@ The project also includes **RIPC**, a custom compression codec designed specific
 - Adaptive per-file compression selection
 - Hierarchical archive browsing in the GUI
 - Archive creation progress reporting
-- Automated Windows ARM64 release packaging
+- Automated Windows ARM64 and x64 release packaging
 - Automated release tests through GitHub Actions
 
 ## Download
@@ -142,7 +142,7 @@ cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release --parallel
 ```
 
-RIP also includes convenience build scripts for common local build tasks.
+RIP also includes convenience build scripts under `scripts\` for ARM64 and x64 builds.
 
 ## Testing
 
@@ -190,17 +190,17 @@ Tagged releases are built automatically by GitHub Actions.
 Creating a release:
 
 ```powershell
-git tag v1.0.0
-git push origin v1.0.0
+git tag v1.0.2
+git push origin v1.0.2
 ```
 
 The release workflow:
 
-1. Builds RIP natively for Windows ARM64.
-2. Runs the compression and token tests.
+1. Builds RIP natively for Windows ARM64 and x64.
+2. Runs the compression and token tests on both architectures.
 3. Packages the CLI, GUI, and GUI assets.
 4. Creates a GitHub Release.
-5. Uploads the ARM64 ZIP automatically.
+5. Uploads both architecture-specific ZIPs automatically.
 
 x64 builds can also be produced directly from source using the x64 CMake configuration above.
 
