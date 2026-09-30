@@ -9,8 +9,18 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: windows-11-vs2026-arm
+  build:
+    name: Build Windows ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: ARM64
+            runner: windows-11-vs2026-arm
+          - arch: x64
+            runner: windows-2025
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout
@@ -22,7 +32,7 @@ jobs:
           -S .
           -B build
           -G "Visual Studio 18 2026"
-          -A ARM64
+          -A ${{ matrix.arch }}
           -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
@@ -49,8 +59,26 @@ jobs:
       - name: Package
         run: cmake --build build --config Release --target package
 
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rip-windows-${{ matrix.arch }}
+          path: build/rip-*-windows-*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: windows-2025
+
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: build/rip-*-windows-arm64.zip
+          files: release/**/*.zip
