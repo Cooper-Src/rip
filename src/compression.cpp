@@ -274,61 +274,6 @@ namespace rip::compression
                         position);
             };
 
-            auto match_is_profitable =
-                [&](std::size_t length,
-                    std::size_t distance)
-            {
-                if (length < MIN_MATCH_LENGTH)
-                {
-                    return false;
-                }
-
-                /*
-                 * A fresh RIPC match carries a 16-bit
-                 * distance plus a length field. A 3-byte
-                 * fresh match therefore costs at least as
-                 * much as three literals before Huffman
-                 * coding, so do not emit it.
-                 *
-                 * Repeated-distance matches are cheaper
-                 * because the distance is implicit.
-                 */
-                if (distance !=
-                    last_match_distance)
-                {
-                    return length >= 4;
-                }
-
-                return true;
-            };
-
-            auto estimate_match_cost =
-                [](std::size_t length,
-                   std::size_t distance,
-                   std::uint16_t previous_distance)
-            {
-                if (length < MIN_MATCH_LENGTH ||
-                    distance == 0)
-                {
-                    return std::numeric_limits<std::size_t>::max();
-                }
-
-                std::size_t cost = 1;
-
-                if (distance !=
-                    previous_distance)
-                {
-                    cost += 2;
-                }
-
-                if (length > 257)
-                {
-                    cost += 2;
-                }
-
-                return cost;
-            };
-
             auto find_match =
                 [&](std::size_t position)
             {
@@ -480,23 +425,6 @@ namespace rip::compression
                  * match at the next byte, prefer the
                  * longer match.
                  */
-                if (!match_is_profitable(
-                        match_length,
-                        match_distance))
-                {
-                    match_length = 0;
-                    match_distance = 0;
-                }
-
-                /*
-                 * Cost-aware lazy matching:
-                 *
-                 * Instead of only looking for a longer
-                 * match, compare the encoded size of the
-                 * current match against one literal followed
-                 * by the next match. This also considers the
-                 * cheaper MatchRepeat form.
-                 */
                 if (use_lazy_matching &&
                     match_length >=
                         MIN_MATCH_LENGTH &&
@@ -508,50 +436,30 @@ namespace rip::compression
                         find_match(
                             position + 1);
 
-                    if (match_is_profitable(
-                            next_length,
-                            next_distance))
+                    if (next_length >
+                        match_length + 1)
                     {
-                        const std::size_t current_cost =
-                            estimate_match_cost(
-                                match_length,
-                                match_distance,
-                                last_match_distance);
+                        LzToken token;
 
-                        const std::size_t next_cost =
-                            estimate_match_cost(
-                                next_length,
-                                next_distance,
-                                last_match_distance);
+                        token.type = 0;
 
-                        if (next_cost !=
-                                std::numeric_limits<std::size_t>::max() &&
-                            next_cost + 1 <
-                                current_cost)
-                        {
-                            LzToken token;
+                        token.literals.push_back(
+                            input[position]);
 
-                            token.type = 0;
+                        tokens.push_back(
+                            std::move(token));
 
-                            token.literals.push_back(
-                                input[position]);
+                        insert_position(position);
+                        ++position;
 
-                            tokens.push_back(
-                                std::move(token));
-
-                            insert_position(position);
-                            ++position;
-
-                            continue;
-                        }
+                        continue;
                     }
+
+                    (void)next_distance;
                 }
 
                 if (match_length >=
-                    MIN_MATCH_LENGTH &&
-                    match_is_profitable(
-                        match_length,
-                        match_distance))
+                    MIN_MATCH_LENGTH)
                 {
                     LzToken token;
 
@@ -600,9 +508,8 @@ namespace rip::compression
 
                     (void)unused_distance;
 
-                    if (match_is_profitable(
-                            next_match_length,
-                            unused_distance))
+                    if (next_match_length >=
+                        MIN_MATCH_LENGTH)
                     {
                         break;
                     }
