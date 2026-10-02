@@ -6,7 +6,7 @@ namespace rip
 {
     // RIP archive format
     constexpr std::uint8_t RIP_FORMAT_MAJOR = 1;
-    constexpr std::uint8_t RIP_FORMAT_MINOR = 0;
+    constexpr std::uint8_t RIP_FORMAT_MINOR = 1;
 
     // "RIP\x01"
     constexpr char RIP_MAGIC[4] = {'R', 'I', 'P', 1};
@@ -15,7 +15,8 @@ namespace rip
 
     enum ArchiveFlags : std::uint32_t
     {
-        ARCHIVE_FLAG_NONE = 0
+        ARCHIVE_FLAG_NONE = 0,
+        ARCHIVE_FLAG_SOLID_RIPC = 1u << 0
     };
 
     // Compression methods
@@ -49,6 +50,11 @@ namespace rip
         std::uint64_t entry_count;
         std::uint64_t index_offset;
         std::uint64_t index_size;
+
+        // RIP 1.1 solid-RIPC extension.
+        // These fields are zero for ordinary archives.
+        std::uint64_t solid_data_offset;
+        std::uint64_t solid_compressed_size;
     };
 
     struct FileEntry
@@ -66,7 +72,12 @@ namespace rip
 
     // Explicit serialized sizes.
 
+    // Base RIP 1.0/1.1 header size.
     constexpr std::uint64_t ARCHIVE_HEADER_SIZE = 36;
+
+    // RIP 1.1 solid-RIPC header size.
+    constexpr std::uint64_t SOLID_RIPC_HEADER_SIZE = 52;
+
     constexpr std::uint64_t FILE_ENTRY_SIZE = 33;
 
 } // namespace rip
