@@ -393,7 +393,7 @@ else()
 endif()
 
 # --------------------------------------------------------------------------
-# Windows package / release
+# Package / release
 # --------------------------------------------------------------------------
 
 if(WIN32)
@@ -443,6 +443,49 @@ if(WIN32)
     set(
         CPACK_PACKAGE_FILE_NAME
         "rip-${RIP_RELEASE_VERSION}-windows-${RIP_WEBVIEW2_ARCH}"
+    )
+
+    include(CPack)
+
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+
+    install(
+        TARGETS
+            rip
+        RUNTIME DESTINATION .
+    )
+
+    set(
+        RIP_RELEASE_VERSION
+        "${PROJECT_VERSION}"
+    )
+
+    if(DEFINED ENV{GITHUB_REF_NAME})
+
+        string(
+            REGEX REPLACE
+            "^v"
+            ""
+            RIP_RELEASE_VERSION
+            "$ENV{GITHUB_REF_NAME}"
+        )
+
+    endif()
+
+    set(CPACK_GENERATOR "TGZ")
+    set(CPACK_PACKAGE_NAME "rip")
+    set(CPACK_PACKAGE_VENDOR "Cooper-Src")
+    set(
+        CPACK_PACKAGE_DESCRIPTION_SUMMARY
+        "RIP custom archive utility for Linux"
+    )
+    set(
+        CPACK_PACKAGE_VERSION
+        "${RIP_RELEASE_VERSION}"
+    )
+    set(
+        CPACK_PACKAGE_FILE_NAME
+        "rip-${RIP_RELEASE_VERSION}-linux-x64"
     )
 
     include(CPack)
