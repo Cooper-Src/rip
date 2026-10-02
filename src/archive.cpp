@@ -509,6 +509,7 @@ namespace rip
             {
                 throw std::runtime_error(
                     "Invalid RIP index offset.");
+            }
 
             if (header.index_offset > file_size)
             {
@@ -670,24 +671,9 @@ namespace rip
                             "RIP file data extends beyond the archive.");
                     }
                 }
-                if (entry.compression != COMPRESSION_STORE &&
-    entry.compression != COMPRESSION_DEFLATE &&
-    entry.compression != COMPRESSION_RIPC)
-{
-    throw std::runtime_error(
-        "Unsupported compression method: " +
-        std::to_string(entry.compression));
-}
 
-if (entry.compression == COMPRESSION_STORE &&
-    entry.original_size != entry.compressed_size)
-{
-    throw std::runtime_error(
-        "Invalid stored file size: " +
-        std::to_string(entry.original_size));
-}
-
-                if (entry.compression == COMPRESSION_STORE &&
+                if (!solid_ripc &&
+                    entry.compression == COMPRESSION_STORE &&
                     entry.original_size != entry.compressed_size)
                 {
                     throw std::runtime_error(
