@@ -1,259 +1,204 @@
-#include <windows.h>
-
-#include <shobjidl.h>
-#include <shellapi.h>
-
-#include <wrl.h>
-#include <WebView2.h>
+#include <QApplication>
+#include <QDesktopServices>
+#include <QDir>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QMainWindow>
+#include <QMessageBox>
+#include <QMimeDatabase>
+#include <QMetaObject>
+#include <QObject>
+#include <QThread>
+#include <QUrl>
+#include <QWebChannel>
+#include <QWebEnginePage>
+#include <QWebEngineProfile>
+#include <QWebEngineScript>
+#include <QWebEngineUrlScheme>
+#include <QWebEngineUrlSchemeHandler>
+#include <QWebEngineUrlRequestJob>
+#include <QWebEngineView>
 
 #include "rip/archive.hpp"
 #include "rip/format.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
-#include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
-#include <vector>
-#include <atomic>
 #include <thread>
+#include <vector>
+#include <cwctype>
 
 namespace fs = std::filesystem;
-
-using Microsoft::WRL::Callback;
-using Microsoft::WRL::ComPtr;
 
 namespace
 {
 
-    constexpr wchar_t WINDOW_CLASS_NAME[] =
-        L"RIPArchiveUtilityWindow";
+    std::atomic_bool g_archive_operation_active = false;
 
-    constexpr wchar_t WEB_HOST_NAME[] =
-        L"rip.local";
-
-    constexpr UINT WM_RIP_ARCHIVE_PROGRESS =
-        WM_APP + 10;
-
-    constexpr UINT WM_RIP_ARCHIVE_COMPLETE =
-        WM_APP + 11;
-
-    std::atomic_bool g_archive_operation_active =
-        false;
-
-    struct ArchiveProgressMessage
+    class RipBridge final : public QObject
     {
-        std::uint64_t processed{};
-        std::uint64_t total{};
+        Q_OBJECT
 
-        std::wstring file;
-        std::wstring stage;
+    public slots:
+        void postMessage(
+            const QString &message)
+        {
+            emit messageFromWeb(message);
+        }
 
-        int percent{};
+    signals:
+        void messageFromWeb(
+            const QString &message);
+
+        void messageReceived(
+            const QString &message);
+
+    public:
+        void sendToWeb(
+            const QString &message)
+        {
+            emit messageReceived(message);
+        }
     };
 
-    struct ArchiveCompleteMessage
+    class RipSchemeHandler final :
+        public QWebEngineUrlSchemeHandler
     {
-        bool success{};
+    public:
+        explicit RipSchemeHandler(
+            const QString &root,
+            QObject *parent = nullptr)
+            : QWebEngineUrlSchemeHandler(parent),
+              m_root(QDir::cleanPath(root))
+        {
+        }
 
-        std::wstring output;
+    protected:
+        void requestStarted(
+            QWebEngineUrlRequestJob *job) override
+        {
+            QString relative =
+                QUrl::fromPercentEncoding(
+                    job->requestUrl()
+                        .path()
+                        .toUtf8());
+
+            while (relative.startsWith('/'))
+            {
+                relative.remove(0, 1);
+            }
+
+            if (relative.isEmpty())
+            {
+                relative =
+                    QStringLiteral("index.html");
+            }
+
+            const QString candidate =
+                QDir::cleanPath(
+                    QDir(m_root).filePath(relative));
+
+            const QString canonicalRoot =
+                QFileInfo(m_root)
+                    .canonicalFilePath();
+
+            const QString canonicalFile =
+                QFileInfo(candidate)
+                    .canonicalFilePath();
+
+            if (canonicalRoot.isEmpty() ||
+                canonicalFile.isEmpty() ||
+                ((!canonicalFile.startsWith(
+                    canonicalRoot +
+                    QDir::separator())) &&
+                 canonicalFile != canonicalRoot))
+            {
+                job->fail(
+                    QWebEngineUrlRequestJob::UrlNotFound);
+                return;
+            }
+
+            auto *file =
+                new QFile(canonicalFile);
+
+            if (!file->open(
+                    QIODevice::ReadOnly))
+            {
+                delete file;
+
+                job->fail(
+                    QWebEngineUrlRequestJob::UrlNotFound);
+                return;
+            }
+
+            const QMimeType mime =
+                QMimeDatabase()
+                    .mimeTypeForFile(
+                        QFileInfo(canonicalFile));
+
+            QByteArray mimeType =
+                mime.name().toUtf8();
+
+            if (mimeType.isEmpty())
+            {
+                mimeType =
+                    "application/octet-stream";
+            }
+
+            job->reply(
+                mimeType,
+                file);
+        }
+
+    private:
+        QString m_root;
     };
 
-    struct DirectoryEntry
-    {
-        std::wstring name;
-        std::wstring path;
+    QMainWindow *g_window = nullptr;
+    QWebEngineView *g_webview = nullptr;
+    RipBridge *g_bridge = nullptr;
 
-        bool is_directory{};
-
-        std::uint64_t size{};
-
-        std::wstring modified;
-        std::wstring created;
-
-        std::wstring icon;
-    };
-
-    HWND g_window = nullptr;
-
-    ComPtr<ICoreWebView2Environment> g_environment;
-    ComPtr<ICoreWebView2Controller> g_controller;
-    ComPtr<ICoreWebView2> g_webview;
-
-    fs::path g_current_directory =
-        L"C:\\";
-
+    fs::path g_current_directory;
     fs::path g_current_archive;
-
     fs::path g_selected_path;
 
-    std::wstring g_requested_preset =
-        L"strong";
+    std::wstring g_requested_preset = L"strong";
 
-    // -----------------------------------------------------------------------------
-    // Basic helpers
-    // -----------------------------------------------------------------------------
-
-    std::wstring get_executable_directory()
+    fs::path path_from_qstring(
+        const QString &path)
     {
-        std::wstring buffer(MAX_PATH, L'\0');
-
-        for (;;)
-        {
-            const DWORD length =
-                GetModuleFileNameW(
-                    nullptr,
-                    buffer.data(),
-                    static_cast<DWORD>(buffer.size()));
-
-            if (length == 0)
-            {
-                return {};
-            }
-
-            if (length < buffer.size() - 1)
-            {
-                buffer.resize(length);
-
-                return fs::path(buffer)
-                    .parent_path()
-                    .wstring();
-            }
-
-            buffer.resize(
-                buffer.size() * 2);
-        }
-    }
-
-    std::wstring get_web_root()
-    {
+#ifdef _WIN32
         return fs::path(
-                   get_executable_directory()) /
-               L"gui";
+            path.toStdWString());
+#else
+        return fs::path(
+            path.toStdString());
+#endif
     }
 
-    std::wstring get_webview_user_data()
+    QString qstring_from_path(
+        const fs::path &path)
     {
-        wchar_t buffer[4096]{};
-
-        const DWORD length =
-            GetEnvironmentVariableW(
-                L"LOCALAPPDATA",
-                buffer,
-                static_cast<DWORD>(
-                    std::size(buffer)));
-
-        if (length == 0 ||
-            length >= std::size(buffer))
-        {
-            return (fs::temp_directory_path() /
-                    L"RIP-WebView2")
-                .wstring();
-        }
-
-        return (fs::path(buffer) /
-                L"RIP" /
-                L"WebView2")
-            .wstring();
+#ifdef _WIN32
+        return QString::fromStdWString(
+            path.wstring());
+#else
+        return QString::fromStdString(
+            path.string());
+#endif
     }
 
-    std::wstring json_escape(
+    QString qstring_from_wstring(
         const std::wstring &value)
     {
-        std::wstring result;
-
-        result.reserve(
-            value.size() + 16);
-
-        for (const wchar_t character : value)
-        {
-            switch (character)
-            {
-            case L'\\':
-                result += L"\\\\";
-                break;
-
-            case L'"':
-                result += L"\\\"";
-                break;
-
-            case L'\b':
-                result += L"\\b";
-                break;
-
-            case L'\f':
-                result += L"\\f";
-                break;
-
-            case L'\n':
-                result += L"\\n";
-                break;
-
-            case L'\r':
-                result += L"\\r";
-                break;
-
-            case L'\t':
-                result += L"\\t";
-                break;
-
-            default:
-                if (character < 0x20)
-                {
-                    wchar_t buffer[8]{};
-
-                    swprintf_s(
-                        buffer,
-                        L"\\u%04x",
-                        static_cast<unsigned>(
-                            character));
-
-                    result += buffer;
-                }
-                else
-                {
-                    result += character;
-                }
-
-                break;
-            }
-        }
-
-        return result;
-    }
-
-    std::wstring file_time_to_date(
-        const FILETIME &file_time)
-    {
-        FILETIME local_time{};
-
-        if (!FileTimeToLocalFileTime(
-                &file_time,
-                &local_time))
-        {
-            return {};
-        }
-
-        SYSTEMTIME system_time{};
-
-        if (!FileTimeToSystemTime(
-                &local_time,
-                &system_time))
-        {
-            return {};
-        }
-
-        wchar_t buffer[32]{};
-
-        swprintf_s(
-            buffer,
-            L"%04u-%02u-%02u",
-            system_time.wYear,
-            system_time.wMonth,
-            system_time.wDay);
-
-        return buffer;
+        return QString::fromStdWString(
+            value);
     }
 
     std::wstring get_extension(
@@ -343,37 +288,129 @@ namespace
         std::wstring &modified,
         std::wstring &created)
     {
-        WIN32_FILE_ATTRIBUTE_DATA data{};
+        const QFileInfo info(
+            qstring_from_path(path));
 
-        if (!GetFileAttributesExW(
-                path.c_str(),
-                GetFileExInfoStandard,
-                &data))
+        if (!info.exists())
         {
             return false;
         }
 
         modified =
-            file_time_to_date(
-                data.ftLastWriteTime);
+            info.lastModified()
+                .toString(
+                    QStringLiteral("yyyy-MM-dd"))
+                .toStdWString();
 
         created =
-            file_time_to_date(
-                data.ftCreationTime);
+            info.birthTime()
+                .toString(
+                    QStringLiteral("yyyy-MM-dd"))
+                .toStdWString();
+
+        if (created.empty())
+        {
+            created = modified;
+        }
 
         return true;
+    }
+
+    std::wstring json_escape(
+        const std::wstring &value)
+    {
+        std::wstring result;
+
+        result.reserve(
+            value.size() + 16);
+
+        for (const wchar_t character : value)
+        {
+            switch (character)
+            {
+            case L'\\':
+                result += L"\\\\";
+                break;
+
+            case L'"':
+                result += L"\\\"";
+                break;
+
+            case L'\b':
+                result += L"\\b";
+                break;
+
+            case L'\f':
+                result += L"\\f";
+                break;
+
+            case L'\n':
+                result += L"\\n";
+                break;
+
+            case L'\r':
+                result += L"\\r";
+                break;
+
+            case L'\t':
+                result += L"\\t";
+                break;
+
+            default:
+                if (character < 0x20)
+                {
+                    wchar_t buffer[8]{};
+
+                    swprintf(
+                        buffer,
+                        sizeof(buffer) /
+                            sizeof(*buffer),
+                        L"\\u%04x",
+                        static_cast<unsigned>(
+                            character));
+
+                    result += buffer;
+                }
+                else
+                {
+                    result += character;
+                }
+
+                break;
+            }
+        }
+
+        return result;
     }
 
     void send_web_message(
         const std::wstring &message)
     {
-        if (!g_webview)
+        if (!g_bridge)
         {
             return;
         }
 
-        g_webview->PostWebMessageAsString(
-            message.c_str());
+        const QString value =
+            qstring_from_wstring(message);
+
+        if (QThread::currentThread() ==
+            g_bridge->thread())
+        {
+            g_bridge->sendToWeb(value);
+            return;
+        }
+
+        QMetaObject::invokeMethod(
+            g_bridge,
+            [bridge = g_bridge, value]()
+            {
+                if (bridge)
+                {
+                    bridge->sendToWeb(value);
+                }
+            },
+            Qt::QueuedConnection);
     }
 
     void send_status(
@@ -397,17 +434,46 @@ namespace
     void set_window_title(
         const std::wstring &text)
     {
-        std::wstring title =
-            L"RIP - " + text;
+        if (!g_window)
+        {
+            return;
+        }
 
-        SetWindowTextW(
-            g_window,
-            title.c_str());
+        g_window->setWindowTitle(
+            QStringLiteral("RIP - ") +
+            qstring_from_wstring(text));
+    }
+
+    void show_error_dialog(
+        const QString &title,
+        const QString &text)
+    {
+        if (g_window)
+        {
+            QMessageBox::critical(
+                g_window,
+                title,
+                text);
+        }
+    }
+
+    void show_info_dialog(
+        const QString &title,
+        const QString &text)
+    {
+        if (g_window)
+        {
+            QMessageBox::information(
+                g_window,
+                title,
+                text);
+        }
     }
 
     // -----------------------------------------------------------------------------
     // Directory enumeration
     // -----------------------------------------------------------------------------
+
 
     std::vector<DirectoryEntry> enumerate_directory(
         const fs::path &directory)
@@ -486,9 +552,10 @@ namespace
                            b.is_directory;
                 }
 
-                return _wcsicmp(
-                           a.name.c_str(),
-                           b.name.c_str()) < 0;
+                return QString::fromStdWString(a.name)
+                           .compare(
+                               QString::fromStdWString(b.name),
+                               Qt::CaseInsensitive) < 0;
             });
 
         return entries;
@@ -579,6 +646,9 @@ namespace
         case rip::COMPRESSION_DEFLATE:
             return L"DEFLATE";
 
+        case rip::COMPRESSION_RIPC:
+            return L"RIPC";
+
         default:
             return L"UNKNOWN";
         }
@@ -662,101 +732,45 @@ namespace
     bool pick_save_archive(
         fs::path &output)
     {
-        ComPtr<IFileSaveDialog> dialog;
-
-        HRESULT result =
-            CoCreateInstance(
-                CLSID_FileSaveDialog,
-                nullptr,
-                CLSCTX_INPROC_SERVER,
-                IID_PPV_ARGS(&dialog));
-
-        if (FAILED(result))
-        {
-            return false;
-        }
-
-        COMDLG_FILTERSPEC filters[] =
-            {
-                {L"RIP archives",
-                 L"*.rip"},
-                {L"All files",
-                 L"*.*"}};
-
-        dialog->SetFileTypes(
-            2,
-            filters);
-
-        dialog->SetDefaultExtension(
-            L"rip");
-
-        std::wstring default_name =
-            L"archive.rip";
+        QString defaultName =
+            QStringLiteral("archive.rip");
 
         if (!g_selected_path.empty())
         {
-            default_name =
-                g_selected_path.filename().wstring();
+            const QFileInfo info(
+                qstring_from_path(
+                    g_selected_path));
 
-            const fs::path filename(
-                default_name);
+            defaultName = info.fileName();
 
-            if (filename.extension().empty())
+            if (info.suffix().isEmpty())
             {
-                default_name +=
-                    L".rip";
+                defaultName +=
+                    QStringLiteral(".rip");
             }
             else
             {
-                default_name =
-                    filename.stem().wstring() +
-                    L".rip";
+                defaultName =
+                    info.completeBaseName() +
+                    QStringLiteral(".rip");
             }
         }
 
-        dialog->SetFileName(
-            default_name.c_str());
+        const QString file =
+            QFileDialog::getSaveFileName(
+                g_window,
+                QStringLiteral("Save RIP Archive"),
+                defaultName,
+                QStringLiteral(
+                    "RIP archives (*.rip);;All files (*)"));
 
-        dialog->SetOptions(
-            FOS_FORCEFILESYSTEM |
-            FOS_OVERWRITEPROMPT |
-            FOS_PATHMUSTEXIST);
-
-        result =
-            dialog->Show(g_window);
-
-        if (FAILED(result))
+        if (file.isEmpty())
         {
             return false;
         }
 
-        ComPtr<IShellItem> item;
-
-        result =
-            dialog->GetResult(
-                &item);
-
-        if (FAILED(result))
-        {
-            return false;
-        }
-
-        PWSTR path = nullptr;
-
-        result =
-            item->GetDisplayName(
-                SIGDN_FILESYSPATH,
-                &path);
-
-        if (FAILED(result) ||
-            path == nullptr)
-        {
-            return false;
-        }
-
-        output = path;
-
-        CoTaskMemFree(path);
+        output =
+            path_from_qstring(file);
 
         return true;
     }
@@ -764,110 +778,23 @@ namespace
     bool pick_folder(
         fs::path &output)
     {
-        ComPtr<IFileOpenDialog> dialog;
+        const QString directory =
+            QFileDialog::getExistingDirectory(
+                g_window,
+                QStringLiteral(
+                    "Select extraction directory"),
+                QDir::homePath(),
+                QFileDialog::ShowDirsOnly);
 
-        HRESULT result =
-            CoCreateInstance(
-                CLSID_FileOpenDialog,
-                nullptr,
-                CLSCTX_INPROC_SERVER,
-                IID_PPV_ARGS(&dialog));
-
-        if (FAILED(result))
+        if (directory.isEmpty())
         {
             return false;
         }
 
-        DWORD options = 0;
-
-        dialog->GetOptions(
-            &options);
-
-        dialog->SetOptions(
-            options |
-            FOS_PICKFOLDERS |
-            FOS_FORCEFILESYSTEM |
-            FOS_PATHMUSTEXIST);
-
-        result =
-            dialog->Show(g_window);
-
-        if (FAILED(result))
-        {
-            return false;
-        }
-
-        ComPtr<IShellItem> item;
-
-        result =
-            dialog->GetResult(
-                &item);
-
-        if (FAILED(result))
-        {
-            return false;
-        }
-
-        PWSTR path = nullptr;
-
-        result =
-            item->GetDisplayName(
-                SIGDN_FILESYSPATH,
-                &path);
-
-        if (FAILED(result) ||
-            path == nullptr)
-        {
-            return false;
-        }
-
-        output = path;
-
-        CoTaskMemFree(path);
+        output =
+            path_from_qstring(directory);
 
         return true;
-    }
-
-    fs::path get_active_archive()
-    {
-        if (!g_current_archive.empty())
-        {
-            return g_current_archive;
-        }
-
-        if (g_selected_path.empty())
-        {
-            return {};
-        }
-
-        std::wstring extension =
-            g_selected_path.extension().wstring();
-
-        std::transform(
-            extension.begin(),
-            extension.end(),
-            extension.begin(),
-            [](wchar_t value)
-            {
-                return static_cast<wchar_t>(
-                    towlower(value));
-            });
-
-        if (extension != L".rip")
-        {
-            return {};
-        }
-
-        std::error_code error;
-
-        if (!fs::is_regular_file(
-                g_selected_path,
-                error))
-        {
-            return {};
-        }
-
-        return g_selected_path;
     }
 
     // -----------------------------------------------------------------------------
@@ -880,11 +807,6 @@ namespace
         const fs::path &file,
         rip::ArchiveProgressStage stage)
     {
-        if (!g_window)
-        {
-            return;
-        }
-
         int percent = 0;
 
         if (stage ==
@@ -922,56 +844,46 @@ namespace
             percent = 98;
         }
 
-        ArchiveProgressMessage *message =
-            new ArchiveProgressMessage;
-
-        message->processed =
-            processed;
-
-        message->total =
-            total;
-
-        message->file =
-            file.wstring();
-
-        message->percent =
-            std::clamp(
-                percent,
-                0,
-                99);
+        std::wstring stageText;
 
         switch (stage)
         {
         case rip::ArchiveProgressStage::Preparing:
-            message->stage =
-                L"Preparing archive";
+            stageText = L"Preparing archive";
             break;
 
         case rip::ArchiveProgressStage::Compressing:
-            message->stage =
-                L"Compressing";
+            stageText = L"Compressing";
             break;
 
         case rip::ArchiveProgressStage::Writing:
-            message->stage =
-                L"Writing archive";
+            stageText = L"Writing archive";
             break;
 
         case rip::ArchiveProgressStage::Finalizing:
-            message->stage =
-                L"Finalizing";
+            stageText = L"Finalizing";
             break;
         }
 
-        if (!PostMessageW(
-                g_window,
-                WM_RIP_ARCHIVE_PROGRESS,
-                0,
-                reinterpret_cast<LPARAM>(
-                    message)))
-        {
-            delete message;
-        }
+        const std::wstring json =
+            L"{\"type\":\"archiveProgress\"," +
+            std::wstring(L"\"processed\":") +
+            std::to_wstring(processed) +
+            L",\"total\":" +
+            std::to_wstring(total) +
+            L",\"percent\":" +
+            std::to_wstring(
+                std::clamp(
+                    percent,
+                    0,
+                    99)) +
+            L",\"file\":\"" +
+            json_escape(file.wstring()) +
+            L"\",\"stage\":\"" +
+            json_escape(stageText) +
+            L"\"}";
+
+        send_web_message(json);
     }
 
     void create_archive()
@@ -980,17 +892,14 @@ namespace
         {
             send_error(
                 L"An archive operation is already running.");
-
             return;
         }
 
         if (g_selected_path.empty())
         {
             g_archive_operation_active = false;
-
             send_error(
                 L"No source selected.");
-
             return;
         }
 
@@ -999,13 +908,12 @@ namespace
 
         std::error_code error;
 
-        if (!fs::exists(source, error) || error)
+        if (!fs::exists(source, error) ||
+            error)
         {
             g_archive_operation_active = false;
-
             send_error(
                 L"The selected source no longer exists.");
-
             return;
         }
 
@@ -1019,10 +927,8 @@ namespace
             if (error)
             {
                 g_archive_operation_active = false;
-
                 send_error(
                     L"Unable to check the archive destination.");
-
                 return;
             }
 
@@ -1042,15 +948,15 @@ namespace
                      std::to_wstring(index) +
                      L").rip");
 
-                if (!fs::exists(output, error))
+                if (!fs::exists(
+                        output,
+                        error))
                 {
                     if (error)
                     {
                         g_archive_operation_active = false;
-
                         send_error(
                             L"Unable to check the archive destination.");
-
                         return;
                     }
 
@@ -1062,10 +968,8 @@ namespace
             if (!found_name)
             {
                 g_archive_operation_active = false;
-
                 send_error(
                     L"Unable to find an available archive filename.");
-
                 return;
             }
         }
@@ -1100,32 +1004,37 @@ namespace
                                 stage);
                         });
 
-                if (!g_window)
-                {
-                    g_archive_operation_active = false;
-                    return;
-                }
+                QMetaObject::invokeMethod(
+                    qApp,
+                    [success, final_output]()
+                    {
+                        g_archive_operation_active =
+                            false;
 
-                auto *result =
-                    new ArchiveCompleteMessage;
+                        if (success)
+                        {
+                            g_current_archive =
+                                final_output;
 
-                result->success =
-                    success;
+                            g_selected_path.clear();
 
-                result->output =
-                    final_output.wstring();
+                            send_web_message(
+                                L"{\"type\":\"archiveComplete\","
+                                L"\"success\":true}");
 
-                if (!PostMessageW(
-                        g_window,
-                        WM_RIP_ARCHIVE_COMPLETE,
-                        0,
-                        reinterpret_cast<LPARAM>(
-                            result)))
-                {
-                    delete result;
+                            send_archive();
+                        }
+                        else
+                        {
+                            send_web_message(
+                                L"{\"type\":\"archiveComplete\","
+                                L"\"success\":false}");
 
-                    g_archive_operation_active = false;
-                }
+                            send_error(
+                                L"Failed to create the archive.");
+                        }
+                    },
+                    Qt::QueuedConnection);
             })
             .detach();
     }
@@ -1186,12 +1095,10 @@ namespace
         if (!rip::Archive::test(
                 archive))
         {
-            MessageBoxW(
-                g_window,
-                L"The archive test failed.",
-                L"RIP",
-                MB_OK |
-                    MB_ICONERROR);
+            show_error_dialog(
+                QStringLiteral("RIP"),
+                QStringLiteral(
+                    "The archive test failed."));
 
             send_error(
                 L"Archive test failed.");
@@ -1199,12 +1106,10 @@ namespace
             return;
         }
 
-        MessageBoxW(
-            g_window,
-            L"The archive is valid.",
-            L"RIP Archive Test",
-            MB_OK |
-                MB_ICONINFORMATION);
+        show_info_dialog(
+            QStringLiteral("RIP Archive Test"),
+            QStringLiteral(
+                "The archive is valid."));
 
         send_status(
             L"Archive test passed");
@@ -1240,6 +1145,7 @@ namespace
 
         std::uint64_t deflate_count = 0;
         std::uint64_t stored_count = 0;
+        std::uint64_t ripc_count = 0;
 
         for (const auto &entry :
              details.entries)
@@ -1259,6 +1165,11 @@ namespace
                      rip::COMPRESSION_STORE)
             {
                 ++stored_count;
+            }
+            else if (entry.compression ==
+                     rip::COMPRESSION_RIPC)
+            {
+                ++ripc_count;
             }
         }
 
@@ -1294,14 +1205,14 @@ namespace
             << deflate_count
             << L"\n"
             << L"STORE: "
-            << stored_count;
+            << stored_count
+            << L"\n"
+            << L"RIPC: "
+            << ripc_count;
 
-        MessageBoxW(
-            g_window,
-            message.str().c_str(),
-            L"RIP Archive Information",
-            MB_OK |
-                MB_ICONINFORMATION);
+        show_info_dialog(
+            QStringLiteral("RIP Archive Information"),
+            qstring_from_wstring(message.str()));
     }
 
     void delete_selected()
@@ -1325,18 +1236,19 @@ namespace
                 return;
             }
 
-            const int answer =
-                MessageBoxW(
+            const QMessageBox::StandardButton answer =
+                QMessageBox::question(
                     g_window,
-                    (
-                        L"Delete this item?\n\n" +
-                        g_selected_path.wstring())
-                        .c_str(),
-                    L"Confirm Delete",
-                    MB_YESNO |
-                        MB_ICONWARNING);
+                    QStringLiteral("Confirm Delete"),
+                    QStringLiteral(
+                        "Delete this item?\n\n") +
+                        qstring_from_path(
+                            g_selected_path),
+                    QMessageBox::Yes |
+                        QMessageBox::No,
+                    QMessageBox::No);
 
-            if (answer != IDYES)
+            if (answer != QMessageBox::Yes)
             {
                 return;
             }
@@ -1463,18 +1375,16 @@ namespace
     void shell_open(
         const fs::path &path)
     {
-        ShellExecuteW(
-            g_window,
-            L"open",
-            path.c_str(),
-            nullptr,
-            nullptr,
-            SW_SHOWNORMAL);
+        QDesktopServices::openUrl(
+            QUrl::fromLocalFile(
+                qstring_from_path(path)));
     }
 
     // -----------------------------------------------------------------------------
-    // WebView messages
+    // Host messages
     // -----------------------------------------------------------------------------
+
+
 
     void handle_web_message(
         const std::wstring &message)
@@ -1592,456 +1502,270 @@ namespace
     }
 
     // -----------------------------------------------------------------------------
-    // WebView initialization
+    // Qt WebEngine initialization
     // -----------------------------------------------------------------------------
 
-    HRESULT initialize_webview()
+    void install_bridge_script(
+        QWebEngineProfile *profile)
     {
-        const std::wstring user_data =
-            get_webview_user_data();
+        QFile channelFile(
+            QStringLiteral(
+                ":/qtwebchannel/qwebchannel.js"));
 
-        fs::create_directories(
-            user_data);
+        if (!channelFile.open(
+                QIODevice::ReadOnly))
+        {
+            throw std::runtime_error(
+                "Unable to load qwebchannel.js.");
+        }
 
-        return CreateCoreWebView2EnvironmentWithOptions(
-            nullptr,
-            user_data.c_str(),
-            nullptr,
-            Callback<
-                ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>(
-                [](HRESULT result,
-                   ICoreWebView2Environment *environment)
-                    -> HRESULT
-                {
-                    if (FAILED(result))
-                    {
-                        MessageBoxW(
-                            g_window,
-                            L"Unable to initialize WebView2.\n\n"
-                            L"Make sure the Microsoft Edge WebView2 Runtime "
-                            L"is installed.",
-                            L"RIP",
-                            MB_OK |
-                                MB_ICONERROR);
-
-                        return result;
-                    }
-
-                    g_environment =
-                        environment;
-
-                    return g_environment
-                        ->CreateCoreWebView2Controller(
-                            g_window,
-                            Callback<
-                                ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                                [](HRESULT result,
-                                   ICoreWebView2Controller *controller)
-                                    -> HRESULT
-                                {
-                                    if (FAILED(result))
-                                    {
-                                        return result;
-                                    }
-
-                                    g_controller =
-                                        controller;
-
-                                    g_controller
-                                        ->get_CoreWebView2(
-                                            &g_webview);
-
-                                    // ---------------------------------------------------------------------
-                                    // High-DPI WebView2 configuration
-                                    // ---------------------------------------------------------------------
-
-                                    ComPtr<ICoreWebView2Controller3>
-                                        controller3;
-
-                                    if (SUCCEEDED(
-                                            g_controller.As(
-                                                &controller3)))
-                                    {
-                                        // Bounds are supplied in physical pixels because our
-                                        // Win32 window is per-monitor-DPI-aware.
-                                        controller3
-                                            ->put_BoundsMode(
-                                                COREWEBVIEW2_BOUNDS_MODE_USE_RAW_PIXELS);
-
-                                        // Let WebView2 automatically track the monitor DPI.
-                                        controller3
-                                            ->put_ShouldDetectMonitorScaleChanges(
-                                                TRUE);
-                                    }
-
-                                    g_controller
-                                        ->put_ZoomFactor(
-                                            1.0);
-
-                                    RECT bounds{};
-
-                                    GetClientRect(
-                                        g_window,
-                                        &bounds);
-
-                                    g_controller
-                                        ->put_Bounds(
-                                            bounds);
-
-                                    g_controller
-                                        ->put_IsVisible(
-                                            TRUE);
-
-                                    ComPtr<ICoreWebView2_3>
-                                        webview3;
-
-                                    if (SUCCEEDED(
-                                            g_webview.As(
-                                                &webview3)))
-                                    {
-                                        const std::wstring web_root =
-                                            get_web_root();
-
-                                        webview3
-                                            ->SetVirtualHostNameToFolderMapping(
-                                                WEB_HOST_NAME,
-                                                web_root.c_str(),
-                                                COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
-                                    }
-
-                                    g_webview
-                                        ->add_WebMessageReceived(
-                                            Callback<
-                                                ICoreWebView2WebMessageReceivedEventHandler>(
-                                                [](ICoreWebView2 *,
-                                                   ICoreWebView2WebMessageReceivedEventArgs *args)
-                                                    -> HRESULT
-                                                {
-                                                    LPWSTR raw_message =
-                                                        nullptr;
-
-                                                    if (SUCCEEDED(
-                                                            args
-                                                                ->TryGetWebMessageAsString(
-                                                                    &raw_message)))
-                                                    {
-                                                        const std::wstring message =
-                                                            raw_message
-                                                                ? raw_message
-                                                                : L"";
-
-                                                        CoTaskMemFree(
-                                                            raw_message);
-
-                                                        handle_web_message(
-                                                            message);
-                                                    }
-
-                                                    return S_OK;
-                                                })
-                                                .Get(),
-                                            nullptr);
-
-                                    g_webview
-                                        ->Navigate(
-                                            L"https://rip.local/index.html?native=1");
-
-                                    return S_OK;
-                                })
-                                .Get());
-                })
-                .Get());
+        const QString bridgeCode =
+            QStringLiteral(R"JS(
+(function() {
+    if (window.__ripQtBridgeInstalled) {
+        return;
     }
 
-    // -----------------------------------------------------------------------------
-    // Window procedure
-    // -----------------------------------------------------------------------------
+    window.__ripQtBridgeInstalled = true;
 
-    LRESULT CALLBACK window_proc(
-        HWND hwnd,
-        UINT message,
-        WPARAM wparam,
-        LPARAM lparam)
-    {
-        switch (message)
-        {
-        case WM_RIP_ARCHIVE_PROGRESS:
-        {
-            auto *progress =
-                reinterpret_cast<ArchiveProgressMessage *>(
-                    lparam);
+    let bridge = null;
+    const queuedMessages = [];
+    const listeners = [];
 
-            if (progress)
-            {
-                std::wstring json =
-                    L"{\"type\":\"archiveProgress\","
-                    L"\"processed\":" +
-                    std::to_wstring(
-                        progress->processed) +
-                    L",\"total\":" +
-                    std::to_wstring(
-                        progress->total) +
-                    L",\"percent\":" +
-                    std::to_wstring(
-                        progress->percent) +
-                    L",\"file\":\"" +
-                    json_escape(
-                        progress->file) +
-                    L"\",\"stage\":\"" +
-                    json_escape(
-                        progress->stage) +
-                    L"\"}";
+    const dispatch = (message) => {
+        const event = {
+            data: message
+        };
 
-                send_web_message(
-                    json);
+        for (const listener of listeners) {
+            try {
+                listener(event);
+            }
+            catch {
+                // Keep one broken listener from stopping the bridge.
+            }
+        }
+    };
 
-                delete progress;
+    window.chrome =
+        window.chrome || {};
+
+    window.chrome.webview = {
+        postMessage(message) {
+            const value =
+                String(message);
+
+            if (bridge) {
+                bridge.postMessage(value);
+            }
+            else {
+                queuedMessages.push(value);
+            }
+        },
+
+        addEventListener(type, listener) {
+            if (
+                type === "message" &&
+                typeof listener === "function"
+            ) {
+                listeners.push(listener);
+            }
+        }
+    };
+
+    new QWebChannel(
+        qt.webChannelTransport,
+        (channel) => {
+            bridge =
+                channel.objects.ripHost;
+
+            if (!bridge) {
+                return;
             }
 
-            return 0;
-        }
-
-        case WM_RIP_ARCHIVE_COMPLETE:
-        {
-            auto *result =
-                reinterpret_cast<ArchiveCompleteMessage *>(
-                    lparam);
-
-            if (result)
-            {
-                g_archive_operation_active =
-                    false;
-
-                if (result->success)
-                {
-                    g_current_archive =
-                        result->output;
-
-                    g_selected_path.clear();
-
-                    send_web_message(
-                        L"{\"type\":\"archiveComplete\","
-                        L"\"success\":true}");
-
-                    send_archive();
-                }
-                else
-                {
-                    send_web_message(
-                        L"{\"type\":\"archiveComplete\","
-                        L"\"success\":false}");
-
-                    send_error(
-                        L"Failed to create the archive.");
-                }
-
-                delete result;
+            if (bridge.messageReceived) {
+                bridge.messageReceived.connect(
+                    dispatch
+                );
             }
 
-            return 0;
-        }
-
-        case WM_SIZE:
-        {
-            if (g_controller)
-            {
-                RECT bounds{};
-
-                GetClientRect(
-                    hwnd,
-                    &bounds);
-
-                g_controller
-                    ->put_Bounds(
-                        bounds);
+            while (queuedMessages.length > 0) {
+                bridge.postMessage(
+                    queuedMessages.shift()
+                );
             }
-
-            return 0;
         }
+    );
+})();
+)JS");
 
-        case WM_DPICHANGED:
-        {
-            if (g_controller)
-            {
-                RECT bounds{};
+        const QString source =
+            QString::fromUtf8(
+                channelFile.readAll()) +
+            "\n" +
+            bridgeCode;
 
-                GetClientRect(
-                    hwnd,
-                    &bounds);
+        QWebEngineScript script;
 
-                g_controller
-                    ->put_Bounds(
-                        bounds);
+        script.setName(
+            QStringLiteral("rip-qt-bridge"));
 
-                ComPtr<ICoreWebView2Controller3>
-                    controller3;
+        script.setInjectionPoint(
+            QWebEngineScript::DocumentCreation);
 
-                if (SUCCEEDED(
-                        g_controller.As(
-                            &controller3)))
-                {
-                    controller3
-                        ->put_ShouldDetectMonitorScaleChanges(
-                            TRUE);
-                }
-            }
+        script.setWorldId(
+            QWebEngineScript::MainWorld);
 
-            return 0;
-        }
+        script.setRunsOnSubFrames(false);
 
-        case WM_DESTROY:
-            g_webview.Reset();
-            g_controller.Reset();
-            g_environment.Reset();
-            g_window = nullptr;
+        script.setSourceCode(
+            source);
 
-            PostQuitMessage(0);
-
-            return 0;
-
-        default:
-            return DefWindowProcW(
-                hwnd,
-                message,
-                wparam,
-                lparam);
-        }
+        profile->scripts()->insert(
+            script);
     }
 
 } // namespace
 
-int WINAPI wWinMain(
-    HINSTANCE instance,
-    HINSTANCE,
-    PWSTR,
-    int show_command)
+#include "gui_main.moc"
+
+int main(
+    int argc,
+    char *argv[])
 {
-    // Tell Windows that RIP handles high-DPI scaling itself.
-    // This must happen before any HWND is created.
-    SetProcessDpiAwarenessContext(
-        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    QWebEngineUrlScheme scheme(
+        QByteArrayLiteral("rip"));
 
-    HRESULT result =
-        CoInitializeEx(
-            nullptr,
-            COINIT_APARTMENTTHREADED);
+    scheme.setSyntax(
+        QWebEngineUrlScheme::Syntax::HostAndPort);
 
-    if (FAILED(result))
-    {
-        MessageBoxW(
-            nullptr,
-            L"Unable to initialize COM.",
-            L"RIP",
-            MB_OK |
-                MB_ICONERROR);
+    scheme.setDefaultPort(0);
 
-        return 1;
-    }
+    scheme.setFlags(
+        QWebEngineUrlScheme::SecureScheme |
+        QWebEngineUrlScheme::LocalScheme |
+        QWebEngineUrlScheme::LocalAccessAllowed |
+        QWebEngineUrlScheme::CorsEnabled);
 
-    WNDCLASSEXW window_class{};
+    QWebEngineUrlScheme::registerScheme(
+        scheme);
 
-    window_class.cbSize =
-        sizeof(window_class);
+    QApplication application(
+        argc,
+        argv);
 
-    window_class.hInstance =
-        instance;
+    QApplication::setApplicationName(
+        QStringLiteral("RIP"));
 
-    window_class.lpfnWndProc =
-        window_proc;
+    QApplication::setApplicationDisplayName(
+        QStringLiteral("RIP Archive Utility"));
 
-    window_class.lpszClassName =
-        WINDOW_CLASS_NAME;
+    QApplication::setOrganizationName(
+        QStringLiteral("Cooper-Src"));
 
-    window_class.hCursor =
-        LoadCursorW(
-            nullptr,
-            IDC_ARROW);
+    const QString webRoot =
+        QDir(
+            QCoreApplication::applicationDirPath())
+            .filePath(
+                QStringLiteral("gui"));
 
-    window_class.hIcon =
-        LoadIconW(
-            nullptr,
-            IDI_APPLICATION);
+    auto *window =
+        new QMainWindow();
 
-    window_class.hIconSm =
-        window_class.hIcon;
+    window->resize(
+        1280,
+        820);
 
-    window_class.hbrBackground =
-        reinterpret_cast<HBRUSH>(
-            COLOR_WINDOW + 1);
+    window->setMinimumSize(
+        900,
+        600);
 
-    if (!RegisterClassExW(
-            &window_class))
-    {
-        CoUninitialize();
-        return 1;
-    }
+    window->setWindowTitle(
+        QStringLiteral("RIP - Loading..."));
 
-    g_window =
-        CreateWindowExW(
-            0,
-            WINDOW_CLASS_NAME,
-            L"RIP - C:\\",
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            1280,
-            820,
-            nullptr,
-            nullptr,
-            instance,
-            nullptr);
+    auto *view =
+        new QWebEngineView(
+            window);
 
-    if (!g_window)
-    {
-        CoUninitialize();
-        return 1;
-    }
+    view->setZoomFactor(1.0);
 
-    ShowWindow(
-        g_window,
-        show_command);
+    view->setContextMenuPolicy(
+        Qt::NoContextMenu);
 
-    UpdateWindow(
-        g_window);
+    window->setCentralWidget(
+        view);
 
-    result =
-        initialize_webview();
+    g_current_directory =
+        path_from_qstring(
+            QDir::homePath());
 
-    if (FAILED(result))
-    {
-        MessageBoxW(
-            g_window,
-            L"Failed to initialize WebView2.",
-            L"RIP",
-            MB_OK |
-                MB_ICONERROR);
+    g_window = window;
+    g_webview = view;
 
-        DestroyWindow(
-            g_window);
+    RipBridge bridge;
 
-        CoUninitialize();
+    g_bridge = &bridge;
 
-        return 1;
-    }
+    QWebEngineProfile *profile =
+        QWebEngineProfile::defaultProfile();
 
-    MSG message{};
+    auto *schemeHandler =
+        new RipSchemeHandler(
+            webRoot,
+            profile);
 
-    while (
-        GetMessageW(
-            &message,
-            nullptr,
-            0,
-            0) > 0)
-    {
-        TranslateMessage(
-            &message);
+    profile->installUrlSchemeHandler(
+        QByteArrayLiteral("rip"),
+        schemeHandler);
 
-        DispatchMessageW(
-            &message);
-    }
+    install_bridge_script(
+        profile);
 
-    CoUninitialize();
+    QWebChannel channel;
 
-    return static_cast<int>(
-        message.wParam);
+    channel.registerObject(
+        QStringLiteral("ripHost"),
+        &bridge);
+
+    view->page()->setWebChannel(
+        &channel);
+
+    QObject::connect(
+        &bridge,
+        &RipBridge::messageFromWeb,
+        [](const QString &message)
+        {
+            handle_web_message(
+                message.toStdWString());
+        });
+
+    QObject::connect(
+        view,
+        &QWebEngineView::loadFinished,
+        [](bool ok)
+        {
+            if (!ok)
+            {
+                show_error_dialog(
+                    QStringLiteral("RIP"),
+                    QStringLiteral(
+                        "Unable to load the RIP GUI."));
+            }
+        });
+
+    view->setUrl(
+        QUrl(
+            QStringLiteral(
+                "rip://app/index.html?native=1")));
+
+    window->show();
+
+    const int exitCode =
+        application.exec();
+
+    g_bridge = nullptr;
+    g_webview = nullptr;
+    g_window = nullptr;
+
+    return exitCode;
 }
