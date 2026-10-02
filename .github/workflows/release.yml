@@ -20,11 +20,13 @@ jobs:
             runner: windows-11-vs2026-arm
             qt_host: windows_arm64
             qt_arch: win64_msvc2022_arm64
+            aqt_source: git+https://github.com/miurahr/aqtinstall.git
 
           - arch: x64
             runner: windows-2025-vs2026
             qt_host: windows
             qt_arch: win64_msvc2022_64
+            aqt_source: ""
 
     runs-on: ${{ matrix.runner }}
 
@@ -41,6 +43,7 @@ jobs:
           arch: ${{ matrix.qt_arch }}
           modules: qtwebengine qtwebchannel qtpositioning
           cache: true
+          aqtsource: ${{ matrix.aqt_source }}
 
       - name: Configure
         run: cmake -S . -B build -G "Visual Studio 18 2026" -A ${{ matrix.arch }} -DCMAKE_BUILD_TYPE=Release
