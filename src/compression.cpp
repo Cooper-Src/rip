@@ -205,26 +205,40 @@ namespace rip::compression
                 static_cast<int>(
                     compression_level);
 
-            std::size_t max_chain_length = 64;
-            std::size_t nice_match_length = 1024;
-            bool use_lazy_matching = true;
+            /*
+             * Match-search tuning:
+             *
+             * DEFLATE-quality compression depends heavily on
+             * how aggressively the LZ matcher searches its
+             * dictionary. RIPC keeps the same 64 KiB window,
+             * but uses substantially deeper chains at higher
+             * compression levels.
+             *
+             * Equal-length matches prefer the previous match
+             * distance so MatchRepeat tokens become more common,
+             * and otherwise prefer the shorter distance because
+             * it is cheaper to Huffman-code.
+             */
+            std::size_t max_chain_length = 32;
+            std::size_t nice_match_length = 512;
+            bool use_lazy_matching = false;
 
             if (level <= 1)
             {
-                max_chain_length = 24;
+                max_chain_length = 32;
                 nice_match_length = 512;
                 use_lazy_matching = false;
             }
             else if (level <= 5)
             {
-                max_chain_length = 96;
-                nice_match_length = 2048;
+                max_chain_length = 512;
+                nice_match_length = 8 * 1024;
                 use_lazy_matching = true;
             }
             else
             {
-                max_chain_length = 256;
-                nice_match_length = 8192;
+                max_chain_length = 4096;
+                nice_match_length = 32 * 1024;
                 use_lazy_matching = true;
             }
 
@@ -341,8 +355,25 @@ namespace rip::compression
                         ++length;
                     }
 
-                    if (length >
-                        best_length)
+                    if (
+                        length > best_length ||
+                        (
+                            length == best_length &&
+                            length >= MIN_MATCH_LENGTH &&
+                            (
+                                (
+                                    distance ==
+                                        last_match_distance &&
+                                    best_distance !=
+                                        last_match_distance
+                                ) ||
+                                (
+                                    distance <
+                                    best_distance
+                                )
+                            )
+                        )
+                    )
                     {
                         best_length =
                             length;
