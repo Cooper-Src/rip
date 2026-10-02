@@ -1770,8 +1770,7 @@ int main(
         QWebEngineUrlScheme::SecureScheme |
         QWebEngineUrlScheme::LocalScheme |
         QWebEngineUrlScheme::LocalAccessAllowed |
-        QWebEngineUrlScheme::CorsEnabled |
-        QWebEngineUrlScheme::FetchApiAllowed);
+        QWebEngineUrlScheme::CorsEnabled);
 
     QWebEngineUrlScheme::registerScheme(
         scheme);
