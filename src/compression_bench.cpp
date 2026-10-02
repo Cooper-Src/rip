@@ -499,8 +499,10 @@ int main(
 
     Bytes continuous;
 
-    Result individual_ripc_total{};
-    Result individual_deflate_total{};
+    Result individual_ripc_total{
+        .success = true};
+    Result individual_deflate_total{
+        .success = true};
 
     for (const auto& project_file :
          project_files)
