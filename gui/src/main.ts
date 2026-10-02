@@ -42,6 +42,8 @@ interface ArchiveMessage {
     major: number;
     minor: number;
     fileSize: number;
+    solidRipc: boolean;
+    solidCompressedSize: number;
     entries: ArchiveEntry[];
 }
 
@@ -108,6 +110,7 @@ let filesystemEntries: FileEntry[] = [];
 let archiveEntries: ArchiveEntry[] = [];
 
 let selectedIndex = -1;
+let archiveSolidRipc = false;
 
 const app =
     document.querySelector<HTMLDivElement>(
@@ -1357,7 +1360,8 @@ const renderArchive = (
     path: string,
     entries: ArchiveEntry[],
     major: number,
-    minor: number
+    minor: number,
+    solidRipc: boolean
 ): void => {
     if (!fileList) {
         return;
@@ -1367,6 +1371,7 @@ const renderArchive = (
     archivePath = path;
     archiveEntries = entries;
     archiveDirectory = "";
+    archiveSolidRipc = solidRipc;
 
     renderArchiveDirectory(
         major,
@@ -1548,13 +1553,15 @@ const renderArchiveDirectory = (
                     row.entry;
 
                 const saved =
-                    entry.originalSize >
-                    entry.compressedSize
-                        ? formatSaved(
-                              entry.originalSize,
-                              entry.compressedSize
-                          )
-                        : "—";
+                    archiveSolidRipc
+                        ? "—"
+                        : entry.originalSize >
+                          entry.compressedSize
+                            ? formatSaved(
+                                  entry.originalSize,
+                                  entry.compressedSize
+                              )
+                            : "—";
 
                 return `
                     <div
@@ -1587,9 +1594,11 @@ const renderArchiveDirectory = (
                         </div>
 
                         <div class="cell size-cell">
-                            ${formatSize(
-                                entry.compressedSize
-                            )}
+                            ${archiveSolidRipc
+                                ? "shared"
+                                : formatSize(
+                                      entry.compressedSize
+                                  )}
                         </div>
 
                         <div class="cell size-cell">
@@ -1603,7 +1612,9 @@ const renderArchiveDirectory = (
                                     ${entry.method.toLowerCase()}
                                 "
                             >
-                                ${entry.method}
+                                ${archiveSolidRipc
+                                    ? "RIPC SOLID"
+                                    : entry.method}
                             </span>
                         </div>
 
@@ -1754,7 +1765,8 @@ const handleHostMessage = (
             message.path,
             message.entries,
             message.major,
-            message.minor
+            message.minor,
+            message.solidRipc
         );
 
         return;
