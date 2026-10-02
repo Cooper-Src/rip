@@ -729,6 +729,7 @@ if (entry.compression == COMPRESSION_STORE &&
 
         void collect_files(
             const fs::path &input,
+            const fs::path &archive_root,
             std::vector<PendingFile> &files,
             const ProgressCallback &progress,
             std::uint64_t total_files,
@@ -855,7 +856,7 @@ if (entry.compression == COMPRESSION_STORE &&
 
                     file.archive_path =
                         entry.path()
-                            .lexically_relative(input)
+                            .lexically_relative(archive_root)
                             .generic_string();
 
                     prepare_file(file);
@@ -867,6 +868,7 @@ if (entry.compression == COMPRESSION_STORE &&
                 {
                     collect_files(
                         entry.path(),
+                        archive_root,
                         files,
                         progress,
                         total_files,
@@ -905,6 +907,9 @@ if (entry.compression == COMPRESSION_STORE &&
 
             collect_files(
                 input,
+                fs::is_directory(input)
+                    ? input
+                    : input.parent_path(),
                 files,
                 progress,
                 total_files,
