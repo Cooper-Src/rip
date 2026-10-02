@@ -1746,7 +1746,7 @@ namespace rip::compression
          * original bytes exactly.
          */
         if (input.size() <
-            selected_payload->size())
+            selected_payload.size())
         {
             flags =
                 FLAG_STORED;
