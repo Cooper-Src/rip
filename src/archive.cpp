@@ -1528,6 +1528,116 @@ if (entry.compression == COMPRESSION_STORE &&
                 << "Header       OK\n"
                 << "Index        OK\n";
 
+            std::vector<std::byte> solid_original;
+            std::size_t solid_offset = 0;
+
+            if ((info.header.flags &
+                 ARCHIVE_FLAG_SOLID_RIPC) != 0)
+            {
+                if (info.header.solid_compressed_size >
+                    std::numeric_limits<std::size_t>::max())
+                {
+                    throw std::runtime_error(
+                        "Solid RIPC stream is too large to test.");
+                }
+
+                archive.seekg(
+                    static_cast<std::streamoff>(
+                        info.header.solid_data_offset));
+
+                if (!archive)
+                {
+                    throw std::runtime_error(
+                        "Unable to seek to solid RIPC data.");
+                }
+
+                std::vector<std::byte> compressed(
+                    static_cast<std::size_t>(
+                        info.header.solid_compressed_size));
+
+                if (!compressed.empty())
+                {
+                    archive.read(
+                        reinterpret_cast<char *>(
+                            compressed.data()),
+                        static_cast<std::streamsize>(
+                            compressed.size()));
+                }
+
+                if (!archive)
+                {
+                    throw std::runtime_error(
+                        "Unable to read solid RIPC data.");
+                }
+
+                std::string ripc_error;
+
+                if (!rip::compression::decompress(
+                        compressed,
+                        solid_original,
+                        &ripc_error))
+                {
+                    throw std::runtime_error(
+                        "Solid RIPC decompression failed: " +
+                        ripc_error);
+                }
+
+                std::uint64_t expected_size = 0;
+
+                for (const auto &[entry, path] : entries)
+                {
+                if ((info.header.flags &
+                     ARCHIVE_FLAG_SOLID_RIPC) != 0)
+                {
+                    if (entry.original_size >
+                        solid_original.size() - solid_offset)
+                    {
+                        throw std::runtime_error(
+                            "Solid RIPC entry exceeds decompressed stream: " +
+                            path);
+                    }
+
+                    const std::size_t size =
+                        static_cast<std::size_t>(
+                            entry.original_size);
+
+                    const std::span<const std::byte> original_data(
+                        solid_original.data() + solid_offset,
+                        size);
+
+                    if (crc32(original_data) != entry.crc32)
+                    {
+                        throw std::runtime_error(
+                            "CRC-32 mismatch: " +
+                            path);
+                    }
+
+                    std::cout
+                        << path
+                        << "  OK\n";
+
+                    solid_offset += size;
+                    continue;
+                }
+
+                    if (entry.original_size >
+                        std::numeric_limits<std::uint64_t>::max() -
+                            expected_size)
+                    {
+                        throw std::runtime_error(
+                            "Solid RIPC original size overflow.");
+                    }
+
+                    expected_size += entry.original_size;
+                }
+
+                if (expected_size != solid_original.size())
+                {
+                    throw std::runtime_error(
+                        "Solid RIPC decompressed size mismatch.");
+                }
+            }
+
             for (const auto &[entry, path] : entries)
             {
                 archive.seekg(
@@ -1630,6 +1740,14 @@ if (entry.compression == COMPRESSION_STORE &&
                 std::cout
                     << path
                     << "  OK\n";
+            }
+
+            if ((info.header.flags &
+                 ARCHIVE_FLAG_SOLID_RIPC) != 0 &&
+                solid_offset != solid_original.size())
+            {
+                throw std::runtime_error(
+                    "Solid RIPC stream contains trailing data.");
             }
 
             std::cout
