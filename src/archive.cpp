@@ -1590,19 +1590,19 @@ namespace rip
             }
 
             const ArchiveInfo info =
-                read_and_validate_header(archive);
+                read_and_validate_header(
+                    archive);
 
             const auto entries =
-                read_entries(archive, info);
+                read_entries(
+                    archive,
+                    info);
 
             std::cout
                 << "RIP Archive Test\n"
                 << "----------------\n"
                 << "Header       OK\n"
                 << "Index        OK\n";
-
-            std::vector<std::byte> solid_original;
-            std::size_t solid_offset = 0;
 
             if ((info.header.flags &
                  ARCHIVE_FLAG_SOLID_RIPC) != 0)
@@ -1643,11 +1643,12 @@ namespace rip
                         "Unable to read solid RIPC data.");
                 }
 
+                std::vector<std::byte> combined;
                 std::string ripc_error;
 
                 if (!rip::compression::decompress(
                         compressed,
-                        solid_original,
+                        combined,
                         &ripc_error))
                 {
                     throw std::runtime_error(
@@ -1657,13 +1658,37 @@ namespace rip
 
                 std::uint64_t expected_size = 0;
 
-                for (const auto &[entry, path] : entries)
-                {
-                if ((info.header.flags &
-                     ARCHIVE_FLAG_SOLID_RIPC) != 0)
+                for (const auto &[entry, path] :
+                     entries)
                 {
                     if (entry.original_size >
-                        solid_original.size() - solid_offset)
+                        std::numeric_limits<std::uint64_t>::max() -
+                            expected_size)
+                    {
+                        throw std::runtime_error(
+                            "Solid RIPC original size overflow.");
+                    }
+
+                    expected_size +=
+                        entry.original_size;
+                }
+
+                if (expected_size !=
+                    static_cast<std::uint64_t>(
+                        combined.size()))
+                {
+                    throw std::runtime_error(
+                        "Solid RIPC decompressed size mismatch.");
+                }
+
+                std::size_t offset = 0;
+
+                for (const auto &[entry, path] :
+                     entries)
+                {
+                    if (entry.original_size >
+                        static_cast<std::uint64_t>(
+                            combined.size() - offset))
                     {
                         throw std::runtime_error(
                             "Solid RIPC entry exceeds decompressed stream: " +
@@ -1674,11 +1699,13 @@ namespace rip
                         static_cast<std::size_t>(
                             entry.original_size);
 
-                    const std::span<const std::byte> original_data(
-                        solid_original.data() + solid_offset,
-                        size);
+                    const std::span<const std::byte>
+                        original_data(
+                            combined.data() + offset,
+                            size);
 
-                    if (crc32(original_data) != entry.crc32)
+                    if (crc32(original_data) !=
+                        entry.crc32)
                     {
                         throw std::runtime_error(
                             "CRC-32 mismatch: " +
@@ -1689,138 +1716,121 @@ namespace rip
                         << path
                         << "  OK\n";
 
-                    solid_offset += size;
-                    continue;
+                    offset += size;
                 }
 
-                    if (entry.original_size >
-                        std::numeric_limits<std::uint64_t>::max() -
-                            expected_size)
-                    {
-                        throw std::runtime_error(
-                            "Solid RIPC original size overflow.");
-                    }
-
-                    expected_size += entry.original_size;
-                }
-
-                if (expected_size != solid_original.size())
+                if (offset != combined.size())
                 {
                     throw std::runtime_error(
-                        "Solid RIPC decompressed size mismatch.");
+                        "Solid RIPC stream contains trailing data.");
                 }
             }
-
-            for (const auto &[entry, path] : entries)
+            else
             {
-                archive.seekg(
-                    static_cast<std::streamoff>(
-                        entry.data_offset));
-
-                if (!archive)
+                for (const auto &[entry, path] :
+                     entries)
                 {
-                    throw std::runtime_error(
-                        "Unable to seek to: " +
-                        path);
-                }
+                    archive.seekg(
+                        static_cast<std::streamoff>(
+                            entry.data_offset));
 
-                if (entry.compressed_size >
-                    std::numeric_limits<std::size_t>::max())
-                {
-                    throw std::runtime_error(
-                        "File is too large to test: " +
-                        path);
-                }
-
-                std::vector<std::byte> data(
-                    static_cast<std::size_t>(
-                        entry.compressed_size));
-
-                if (!data.empty())
-                {
-                    archive.read(
-                        reinterpret_cast<char *>(
-                            data.data()),
-                        static_cast<std::streamsize>(
-                            data.size()));
-                }
-
-                if (!archive)
-                {
-                    throw std::runtime_error(
-                        "Unable to read: " +
-                        path);
-                }
-
-                std::vector<std::byte> original_data;
-
-                if (entry.compression ==
-                    COMPRESSION_STORE)
-                {
-                    original_data =
-                        std::move(data);
-                }
-                else if (entry.compression ==
-                         COMPRESSION_DEFLATE)
-                {
-                    original_data =
-                        decompress_deflate(
-                            data,
-                            entry.original_size);
-                }
-                else if (entry.compression ==
-                         COMPRESSION_RIPC)
-                {
-                    std::string ripc_error;
-
-                    if (!rip::compression::decompress(
-                            data,
-                            original_data,
-                            &ripc_error))
+                    if (!archive)
                     {
                         throw std::runtime_error(
-                            "RIPC decompression failed for " +
-                            path +
-                            ": " +
-                            ripc_error);
+                            "Unable to seek to: " +
+                            path);
                     }
+
+                    if (entry.compressed_size >
+                        std::numeric_limits<std::size_t>::max())
+                    {
+                        throw std::runtime_error(
+                            "File is too large to test: " +
+                            path);
+                    }
+
+                    std::vector<std::byte> data(
+                        static_cast<std::size_t>(
+                            entry.compressed_size));
+
+                    if (!data.empty())
+                    {
+                        archive.read(
+                            reinterpret_cast<char *>(
+                                data.data()),
+                            static_cast<std::streamsize>(
+                                data.size()));
+                    }
+
+                    if (!archive)
+                    {
+                        throw std::runtime_error(
+                            "Unable to read: " +
+                            path);
+                    }
+
+                    std::vector<std::byte> original_data;
+
+                    if (entry.compression ==
+                        COMPRESSION_STORE)
+                    {
+                        original_data =
+                            std::move(data);
+                    }
+                    else if (entry.compression ==
+                             COMPRESSION_DEFLATE)
+                    {
+                        original_data =
+                            decompress_deflate(
+                                data,
+                                entry.original_size);
+                    }
+                    else if (entry.compression ==
+                             COMPRESSION_RIPC)
+                    {
+                        std::string ripc_error;
+
+                        if (!rip::compression::decompress(
+                                data,
+                                original_data,
+                                &ripc_error))
+                        {
+                            throw std::runtime_error(
+                                "RIPC decompression failed for " +
+                                path +
+                                ": " +
+                                ripc_error);
+                        }
+                    }
+                    else
+                    {
+                        throw std::runtime_error(
+                            "Unsupported compression method: " +
+                            std::to_string(entry.compression));
+                    }
+
+                    if (original_data.size() !=
+                        entry.original_size)
+                    {
+                        throw std::runtime_error(
+                            "Decompressed size mismatch: " +
+                            path);
+                    }
+
+                    const std::uint32_t actual_crc =
+                        crc32(original_data);
+
+                    if (actual_crc != entry.crc32)
+                    {
+                        throw std::runtime_error(
+                            "CRC-32 mismatch: " +
+                            path);
+                    }
+
+                    std::cout
+                        << path
+                        << "  OK\n";
                 }
-                else
-                {
-                    throw std::runtime_error(
-                        "Unsupported compression method: " +
-                        std::to_string(entry.compression));
-                }
-
-                if (original_data.size() !=
-                    entry.original_size)
-                {
-                    throw std::runtime_error(
-                        "Decompressed size mismatch: " +
-                        path);
-                }
-
-                const std::uint32_t actual_crc =
-                    crc32(original_data);
-
-                if (actual_crc != entry.crc32)
-                {
-                    throw std::runtime_error(
-                        "CRC-32 mismatch: " +
-                        path);
-                }
-
-                std::cout
-                    << path
-                    << "  OK\n";
-            }
-
-            if ((info.header.flags &
-                 ARCHIVE_FLAG_SOLID_RIPC) != 0 &&
-                solid_offset != solid_original.size())
-            {
-                throw std::runtime_error(
-                    "Solid RIPC stream contains trailing data.");
             }
 
             std::cout
