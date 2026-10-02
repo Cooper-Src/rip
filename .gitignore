@@ -1,4 +1,6 @@
 build/
+build-*/
+build*/
 gui/node_modules/
 extracted
 
