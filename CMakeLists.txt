@@ -9,6 +9,18 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(CMAKE_AUTOMOC ON)
+
+find_package(Qt6 REQUIRED COMPONENTS
+    Core
+    Gui
+    Widgets
+    WebChannel
+    WebEngineCore
+    WebEngineWidgets
+)
+
+
 # --------------------------------------------------------------------------
 # zlib-ng
 #
@@ -66,174 +78,73 @@ else()
     )
 endif()
 
-# RIP WebView2 GUI
+# RIP Qt6 GUI
 
-if(WIN32)
-
-    set(RIP_WEBVIEW2_VERSION "1.0.4191.47")
-
-    set(
-        RIP_WEBVIEW2_PACKAGE_DIR
-        "${CMAKE_BINARY_DIR}/_deps/webview2-${RIP_WEBVIEW2_VERSION}"
-    )
-
-    set(
-        RIP_WEBVIEW2_NUPKG
-        "${CMAKE_BINARY_DIR}/_deps/webview2-${RIP_WEBVIEW2_VERSION}.nupkg"
-    )
-
-    if(NOT EXISTS
-        "${RIP_WEBVIEW2_PACKAGE_DIR}/build/native/include/WebView2.h"
-    )
-
-        message(STATUS
-            "Downloading WebView2 SDK ${RIP_WEBVIEW2_VERSION}..."
-        )
-
-        file(MAKE_DIRECTORY
-            "${CMAKE_BINARY_DIR}/_deps"
-        )
-
-        if(NOT EXISTS "${RIP_WEBVIEW2_NUPKG}")
-
-            file(DOWNLOAD
-                "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/${RIP_WEBVIEW2_VERSION}"
-                "${RIP_WEBVIEW2_NUPKG}"
-                SHOW_PROGRESS
-            )
-
-        endif()
-
-        file(MAKE_DIRECTORY
-            "${RIP_WEBVIEW2_PACKAGE_DIR}"
-        )
-
-        execute_process(
-            COMMAND
-                "${CMAKE_COMMAND}"
-                -E
-                tar
-                x
-                "${RIP_WEBVIEW2_NUPKG}"
-
-            WORKING_DIRECTORY
-                "${RIP_WEBVIEW2_PACKAGE_DIR}"
-
-            RESULT_VARIABLE
-                RIP_WEBVIEW2_EXTRACT_RESULT
-        )
-
-        if(NOT RIP_WEBVIEW2_EXTRACT_RESULT EQUAL 0)
-            message(FATAL_ERROR
-                "Failed to extract the WebView2 SDK."
-            )
-        endif()
-
-    endif()
-
-    if(CMAKE_VS_PLATFORM_NAME STREQUAL "ARM64")
-
-        set(RIP_WEBVIEW2_ARCH arm64)
-
-    elseif(CMAKE_VS_PLATFORM_NAME STREQUAL "x64")
-
-        set(RIP_WEBVIEW2_ARCH x64)
-
-    elseif(CMAKE_VS_PLATFORM_NAME STREQUAL "Win32")
-
-        set(RIP_WEBVIEW2_ARCH x86)
-
-    else()
-
-        message(FATAL_ERROR
-            "Unsupported WebView2 architecture: "
-            "${CMAKE_VS_PLATFORM_NAME}"
-        )
-
-    endif()
-
-    add_executable(
+add_executable(
     rip-gui
-    WIN32
     src/gui_main.cpp
-    src/archive.cpp
-    src/crc32.cpp
-    src/compression.cpp
-    src/token_codec.cpp
-    src/token_huffman.cpp
 )
 
-    target_include_directories(
+if(WIN32)
+    set_target_properties(
         rip-gui
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/include
-            "${RIP_WEBVIEW2_PACKAGE_DIR}/build/native/include"
+        PROPERTIES
+            WIN32_EXECUTABLE TRUE
     )
-
-    target_link_libraries(
-        rip-gui
-        PRIVATE
-            zlib
-
-            "${RIP_WEBVIEW2_PACKAGE_DIR}/build/native/${RIP_WEBVIEW2_ARCH}/WebView2LoaderStatic.lib"
-
-            user32
-            shell32
-            ole32
-            shlwapi
-            version
-            advapi32
-    )
-
-    target_compile_definitions(
-        rip-gui
-        PRIVATE
-            UNICODE
-            _UNICODE
-            NOMINMAX
-            WIN32_LEAN_AND_MEAN
-    )
-
-    if(MSVC)
-
-        target_compile_options(
-            rip-gui
-            PRIVATE
-                /W4
-                /permissive-
-            )
-
-    else()
-
-        target_compile_options(
-            rip-gui
-            PRIVATE
-                -Wall
-                -Wextra
-                -Wpedantic
-            )
-
-    endif()
-
-    add_custom_command(
-        TARGET rip-gui
-        POST_BUILD
-
-        COMMAND
-            "${CMAKE_COMMAND}"
-            -E
-            make_directory
-            "$<TARGET_FILE_DIR:rip-gui>/gui"
-
-        COMMAND
-            "${CMAKE_COMMAND}"
-            -E
-            copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/gui/dist"
-            "$<TARGET_FILE_DIR:rip-gui>/gui"
-    )
-
 endif()
+
+target_include_directories(
+    rip-gui
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(
+    rip-gui
+    PRIVATE
+        zlib
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Widgets
+        Qt6::WebChannel
+        Qt6::WebEngineCore
+        Qt6::WebEngineWidgets
+)
+
+if(MSVC)
+    target_compile_options(
+        rip-gui
+        PRIVATE
+            /W4
+            /permissive-
+    )
+else()
+    target_compile_options(
+        rip-gui
+        PRIVATE
+            -Wall
+            -Wextra
+            -Wpedantic
+    )
+endif()
+
+add_custom_command(
+    TARGET rip-gui
+    POST_BUILD
+
+    COMMAND
+        "${CMAKE_COMMAND}"
+        -E
+        make_directory
+        "$<TARGET_FILE_DIR:rip-gui>/gui"
+
+    COMMAND
+        "${CMAKE_COMMAND}"
+        -E
+        copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/gui/dist"
+        "$<TARGET_FILE_DIR:rip-gui>/gui"
+)
 
 add_executable(
     rip-compression-test
@@ -434,7 +345,7 @@ if(WIN32)
     set(CPACK_PACKAGE_VENDOR "Cooper-Src")
     set(
         CPACK_PACKAGE_DESCRIPTION_SUMMARY
-        "RIP custom archive utility for Windows"
+        "RIP custom archive utility and GUI for Windows"
     )
     set(
         CPACK_PACKAGE_VERSION
@@ -452,7 +363,15 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     install(
         TARGETS
             rip
+            rip-gui
         RUNTIME DESTINATION .
+    )
+
+    install(
+        DIRECTORY
+            "${CMAKE_CURRENT_SOURCE_DIR}/gui/dist/"
+        DESTINATION
+            gui
     )
 
     set(
@@ -477,7 +396,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_PACKAGE_VENDOR "Cooper-Src")
     set(
         CPACK_PACKAGE_DESCRIPTION_SUMMARY
-        "RIP custom archive utility for Linux"
+        "RIP custom archive utility and GUI for Linux"
     )
     set(
         CPACK_PACKAGE_VERSION
