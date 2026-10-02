@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>RIP Archive Utility</strong><br>
-  A lightweight custom archive format and archive manager built for Windows ARM64 and x64.
+  A lightweight custom archive format and archive manager built for Windows ARM64/x64 and Linux ARM64/x64.
 </p>
 
 <p align="center">
@@ -28,6 +28,7 @@ The project also includes **RIPC**, a custom compression codec designed specific
 - Custom `.rip` archive format
 - C++23 implementation
 - Native Windows ARM64 and x64 support
+- Linux ARM64 and x64 CLI support
 - Command-line interface
 - WebView2-based Windows GUI
 - Archive creation, listing, testing, inspection, and extraction
@@ -36,7 +37,7 @@ The project also includes **RIPC**, a custom compression codec designed specific
 - Adaptive per-file compression selection
 - Hierarchical archive browsing in the GUI
 - Archive creation progress reporting
-- Automated Windows ARM64 and x64 release packaging
+- Automated Windows ARM64/x64 and Linux ARM64/x64 release packaging
 - Automated release tests through GitHub Actions
 
 ## Download
@@ -114,7 +115,7 @@ Current functionality includes:
 
 ## Building from source
 
-### Requirements
+### Windows requirements
 
 - Windows 11
 - Visual Studio 2026 Build Tools
@@ -123,6 +124,16 @@ Current functionality includes:
 - Git
 
 The GUI also uses the Microsoft WebView2 SDK. The CMake build downloads the required SDK automatically.
+
+### Linux requirements
+
+- A modern Linux distribution
+- C++23 toolchain
+- CMake 3.25 or newer
+- Ninja (recommended)
+- Git
+
+Linux currently builds the RIP command-line utility. The WebView2 GUI is Windows-only.
 
 ### ARM64
 
@@ -143,6 +154,23 @@ cmake --build build --config Release --parallel
 ```
 
 RIP also includes convenience build scripts under `scripts\` for ARM64 and x64 builds.
+
+### Linux
+
+From the repository root:
+
+```bash
+cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux --parallel
+```
+
+Or use the convenience script:
+
+```bash
+./scripts/build-linux.sh
+```
+
+The Linux build produces `build-linux/rip`.
 
 ## Testing
 
@@ -200,7 +228,7 @@ The release workflow:
 2. Runs the compression and token tests on both architectures.
 3. Packages the CLI, GUI, and GUI assets.
 4. Creates a GitHub Release.
-5. Uploads both architecture-specific ZIPs automatically.
+5. Uploads the Windows ZIPs and Linux ARM64/x64 tarballs automatically.
 
 x64 builds can also be produced directly from source using the x64 CMake configuration above.
 
