@@ -224,25 +224,32 @@ namespace rip::compression
              */
             std::size_t max_chain_length = 32;
             std::size_t nice_match_length = 512;
-            bool use_lazy_matching = false;
+            std::size_t lazy_lookahead = 0;
 
             if (level <= 1)
             {
                 max_chain_length = 32;
                 nice_match_length = 512;
-                use_lazy_matching = false;
+                lazy_lookahead = 0;
             }
             else if (level <= 5)
             {
-                max_chain_length = 512;
-                nice_match_length = 8 * 1024;
-                use_lazy_matching = true;
+                max_chain_length = 768;
+                nice_match_length = 16 * 1024;
+                lazy_lookahead = 2;
             }
             else
             {
-                max_chain_length = 4096;
-                nice_match_length = 32 * 1024;
-                use_lazy_matching = true;
+                /*
+                 * Maximum is deliberately size-first. It searches
+                 * deeper and lets the matcher find essentially the
+                 * longest useful match before stopping. The extra
+                 * lazy lookahead catches cases where a single literal
+                 * or two literals unlock a substantially better match.
+                 */
+                max_chain_length = 8192;
+                nice_match_length = MAX_MATCH_LENGTH;
+                lazy_lookahead = 4;
             }
 
             std::vector<int> head(
@@ -405,6 +412,94 @@ namespace rip::compression
                     best_distance};
             };
 
+            /*
+             * Evaluate a match that starts a few bytes later without
+             * permanently adding those speculative positions to the
+             * dictionary. This fixes the old lazy matcher limitation
+             * where position+1 could not see the current position as
+             * a dictionary candidate.
+             */
+            auto find_match_after_literals =
+                [&](std::size_t position,
+                    std::size_t literal_count)
+            {
+                struct TemporaryInsert
+                {
+                    std::size_t position{};
+                    std::uint32_t hash{};
+                    int old_head{-1};
+                    int old_previous{-1};
+                };
+
+                std::array<
+                    TemporaryInsert,
+                    4>
+                    temporary{};
+
+                std::size_t inserted = 0;
+
+                for (std::size_t i = 0;
+                     i < literal_count &&
+                     i < temporary.size();
+                     ++i)
+                {
+                    const std::size_t
+                        temporary_position =
+                            position + i;
+
+                    if (temporary_position + 3 >=
+                        input.size())
+                    {
+                        break;
+                    }
+
+                    const std::uint32_t hash =
+                        hash4(
+                            input.data() +
+                            temporary_position);
+
+                    temporary[inserted] =
+                        TemporaryInsert{
+                            .position =
+                                temporary_position,
+                            .hash = hash,
+                            .old_head = head[hash],
+                            .old_previous =
+                                previous[
+                                    temporary_position]};
+
+                    previous[temporary_position] =
+                        head[hash];
+
+                    head[hash] =
+                        static_cast<int>(
+                            temporary_position);
+
+                    ++inserted;
+                }
+
+                const auto result =
+                    find_match(
+                        position +
+                        literal_count);
+
+                while (inserted > 0)
+                {
+                    --inserted;
+
+                    const auto& item =
+                        temporary[inserted];
+
+                    head[item.hash] =
+                        item.old_head;
+
+                    previous[item.position] =
+                        item.old_previous;
+                }
+
+                return result;
+            };
+
             std::vector<LzToken> tokens;
 
             tokens.reserve(
@@ -420,45 +515,103 @@ namespace rip::compression
                       match_distance] =
                     find_match(position);
 
-                /*
-                 * Lazy matching:
-                 *
-                 * If consuming one literal now lets
-                 * us discover a substantially longer
-                 * match at the next byte, prefer the
-                 * longer match.
-                 */
-                if (use_lazy_matching &&
+                if (lazy_lookahead != 0 &&
                     match_length >=
-                        MIN_MATCH_LENGTH &&
-                    position + 4 <
-                        input.size())
+                        MIN_MATCH_LENGTH)
                 {
-                    const auto [next_length,
-                                next_distance] =
-                        find_match(
-                            position + 1);
+                    const auto current_score =
+                        static_cast<long long>(
+                            match_length) +
+                        (
+                            match_distance ==
+                                    last_match_distance
+                                ? 2
+                                : 0);
 
-                    if (next_length >
-                        match_length + 1)
+                    std::size_t best_skip = 0;
+                    std::size_t best_length =
+                        match_length;
+                    std::size_t best_distance =
+                        match_distance;
+
+                    for (std::size_t skip = 1;
+                         skip <= lazy_lookahead;
+                         ++skip)
                     {
-                        LzToken token;
+                        if (position + skip + 3 >=
+                            input.size())
+                        {
+                            break;
+                        }
 
-                        token.type = 0;
+                        const auto [next_length,
+                                    next_distance] =
+                            find_match_after_literals(
+                                position,
+                                skip);
 
-                        token.literals.push_back(
-                            input[position]);
+                        if (next_length <
+                            MIN_MATCH_LENGTH)
+                        {
+                            continue;
+                        }
 
-                        tokens.push_back(
-                            std::move(token));
+                        const auto candidate_score =
+                            static_cast<long long>(
+                                next_length) -
+                            static_cast<long long>(
+                                skip) +
+                            (
+                                next_distance ==
+                                        last_match_distance
+                                    ? 2
+                                    : 0);
 
-                        insert_position(position);
-                        ++position;
+                        if (candidate_score >
+                            current_score)
+                        {
+                            if (best_skip == 0 ||
+                                candidate_score >
+                                    static_cast<
+                                        long long>(
+                                        best_length) -
+                                    static_cast<
+                                        long long>(
+                                        best_skip))
+                            {
+                                best_skip = skip;
+                                best_length =
+                                    next_length;
+                                best_distance =
+                                    next_distance;
+                            }
+                        }
+                    }
+
+                    if (best_skip != 0)
+                    {
+                        (void)best_distance;
+
+                        for (std::size_t i = 0;
+                             i < best_skip;
+                             ++i)
+                        {
+                            LzToken token;
+
+                            token.type = 0;
+
+                            token.literals.push_back(
+                                input[position]);
+
+                            tokens.push_back(
+                                std::move(token));
+
+                            insert_position(position);
+                            ++position;
+                        }
 
                         continue;
                     }
-
-                    (void)next_distance;
                 }
 
                 if (match_length >=
