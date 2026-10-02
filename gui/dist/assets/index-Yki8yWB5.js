@@ -1,4 +1,4 @@
-(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const i of document.querySelectorAll('link[rel="modulepreload"]'))o(i);new MutationObserver(i=>{for(const c of i)if(c.type==="childList")for(const m of c.addedNodes)m.tagName==="LINK"&&m.rel==="modulepreload"&&o(m)}).observe(document,{childList:!0,subtree:!0});function l(i){const c={};return i.integrity&&(c.integrity=i.integrity),i.referrerPolicy&&(c.referrerPolicy=i.referrerPolicy),i.crossOrigin==="use-credentials"?c.credentials="include":i.crossOrigin==="anonymous"?c.credentials="omit":c.credentials="same-origin",c}function o(i){if(i.ep)return;i.ep=!0;const c=l(i);fetch(i.href,c)}})();const Z=new URLSearchParams(window.location.search).get("native")==="1";document.body.classList.toggle("native-host",Z);let d="filesystem",F="C:\\",g="",f="",T=[],U=[],r=-1,q=!1;const J=document.querySelector("#app");if(!J)throw new Error("Unable to find #app.");const H=t=>t===null?"":t.toLocaleString("en-US").replaceAll(","," "),_=(t,e)=>t<=0?"0.0%":`${((t-e)/t*100).toFixed(1)}%`,N=t=>{switch(t){case"folder":return`
+(function(){const e=document.createElement("link").relList;if(e&&e.supports&&e.supports("modulepreload"))return;for(const i of document.querySelectorAll('link[rel="modulepreload"]'))o(i);new MutationObserver(i=>{for(const c of i)if(c.type==="childList")for(const m of c.addedNodes)m.tagName==="LINK"&&m.rel==="modulepreload"&&o(m)}).observe(document,{childList:!0,subtree:!0});function l(i){const c={};return i.integrity&&(c.integrity=i.integrity),i.referrerPolicy&&(c.referrerPolicy=i.referrerPolicy),i.crossOrigin==="use-credentials"?c.credentials="include":i.crossOrigin==="anonymous"?c.credentials="omit":c.credentials="same-origin",c}function o(i){if(i.ep)return;i.ep=!0;const c=l(i);fetch(i.href,c)}})();const Z=new URLSearchParams(window.location.search).get("native")==="1";document.body.classList.toggle("native-host",Z);let d="filesystem",F="C:\\",g="",f="",T=[],U=[],r=-1,sr=!1;const J=document.querySelector("#app");if(!J)throw new Error("Unable to find #app.");const H=t=>t===null?"":t.toLocaleString("en-US").replaceAll(","," "),_=(t,e)=>t<=0?"0.0%":`${((t-e)/t*100).toFixed(1)}%`,N=t=>{switch(t){case"folder":return`
                 <svg viewBox="0 0 24 24">
                     <path
                         d="M3 6.5h7l1.8 2H21v10.8H3z"
@@ -543,7 +543,7 @@
                         <div class="cell"></div>
 
                     </div>
-                `).join(""),r=-1,p.querySelectorAll(".file-row").forEach(e=>{const l=Number(e.dataset.index);e.addEventListener("click",()=>{r=l,p.querySelectorAll(".file-row").forEach(o=>o.classList.remove("selected")),e.classList.add("selected"),u(`select	${t[l].path}`),C(),v(`1 / ${t.length} object(s) selected`)}),e.addEventListener("dblclick",()=>{const o=t[l];if(o){if(o.kind==="folder"){u(`directory	${o.path}`);return}if(o.name.toLowerCase().endsWith(".rip")){u(`archive	${o.path}`);return}u(`open-file	${o.path}`)}})}),v(`0 / ${t.length} object(s) selected`),C())},ie=t=>{const e=t.toLowerCase();return e.endsWith(".md")||e.endsWith(".markdown")?"markdown":e.endsWith(".mp4")||e.endsWith(".mkv")||e.endsWith(".avi")?"vlc":e.endsWith(".html")||e.endsWith(".htm")?"browser":e.endsWith(".exe")||e.endsWith(".dll")?"exe":e.endsWith(".iso")||e.endsWith(".img")?"disc":e.endsWith(".cpp")||e.endsWith(".hpp")||e.endsWith(".c")||e.endsWith(".h")||e.endsWith(".js")||e.endsWith(".ts")||e.endsWith(".tsx")||e.endsWith(".jsx")||e.endsWith(".py")||e.endsWith(".json")||e.endsWith(".css")?"vscode":"disc"},ae=(t,e,l,o,i)=>{p&&(d="archive",g=t,U=e,f="",q=i,I(l,o))},I=(t,e)=>{if(!p)return;d="archive",K(!0);const l=f.replace(/^\/+/,"").replace(/\/+$/,""),o=l.length>0?`${l}/`:"",i=new Set,c=[];for(const s of U){const n=s.name.replace(/^\/+/,"");if(!n.startsWith(o))continue;const a=n.slice(o.length);if(!a)continue;const y=a.indexOf("/");if(y!==-1){i.add(a.slice(0,y));continue}c.push(s)}const m=[...i].sort((s,n)=>s.localeCompare(n,void 0,{sensitivity:"base"})).map(s=>({kind:"folder",name:s,path:o+s}));c.sort((s,n)=>s.name.localeCompare(n.name,void 0,{sensitivity:"base"}));const b=[...m.map(s=>({type:"folder",name:s.name,path:s.path})),...c.map(s=>({type:"file",entry:s}))];p.innerHTML=b.map((s,n)=>{if(s.type==="folder")return`
+                `).join(""),r=-1,p.querySelectorAll(".file-row").forEach(e=>{const l=Number(e.dataset.index);e.addEventListener("click",()=>{r=l,p.querySelectorAll(".file-row").forEach(o=>o.classList.remove("selected")),e.classList.add("selected"),u(`select	${t[l].path}`),C(),v(`1 / ${t.length} object(s) selected`)}),e.addEventListener("dblclick",()=>{const o=t[l];if(o){if(o.kind==="folder"){u(`directory	${o.path}`);return}if(o.name.toLowerCase().endsWith(".rip")){u(`archive	${o.path}`);return}u(`open-file	${o.path}`)}})}),v(`0 / ${t.length} object(s) selected`),C())},ie=t=>{const e=t.toLowerCase();return e.endsWith(".md")||e.endsWith(".markdown")?"markdown":e.endsWith(".mp4")||e.endsWith(".mkv")||e.endsWith(".avi")?"vlc":e.endsWith(".html")||e.endsWith(".htm")?"browser":e.endsWith(".exe")||e.endsWith(".dll")?"exe":e.endsWith(".iso")||e.endsWith(".img")?"disc":e.endsWith(".cpp")||e.endsWith(".hpp")||e.endsWith(".c")||e.endsWith(".h")||e.endsWith(".js")||e.endsWith(".ts")||e.endsWith(".tsx")||e.endsWith(".jsx")||e.endsWith(".py")||e.endsWith(".json")||e.endsWith(".css")?"vscode":"disc"},ae=(t,e,l,o,i)=>{p&&(d="archive",g=t,U=e,f="",sr=i,I(l,o))},I=(t,e)=>{if(!p)return;d="archive",K(!0);const l=f.replace(/^\/+/,"").replace(/\/+$/,""),o=l.length>0?`${l}/`:"",i=new Set,c=[];for(const s of U){const n=s.name.replace(/^\/+/,"");if(!n.startsWith(o))continue;const a=n.slice(o.length);if(!a)continue;const y=a.indexOf("/");if(y!==-1){i.add(a.slice(0,y));continue}c.push(s)}const m=[...i].sort((s,n)=>s.localeCompare(n,void 0,{sensitivity:"base"})).map(s=>({kind:"folder",name:s,path:o+s}));c.sort((s,n)=>s.name.localeCompare(n.name,void 0,{sensitivity:"base"}));const b=[...m.map(s=>({type:"folder",name:s.name,path:s.path})),...c.map(s=>({type:"file",entry:s}))];p.innerHTML=b.map((s,n)=>{if(s.type==="folder")return`
                         <div
                             class="file-row"
                             data-index="${n}"
@@ -578,7 +578,7 @@
                             <div class="cell"></div>
 
                         </div>
-                    `;const a=s.entry,y=q?"—":a.originalSize>a.compressedSize?_(a.originalSize,a.compressedSize):"—";return`
+                    `;const a=s.entry,y=sr?"—":a.originalSize>a.compressedSize?_(a.originalSize,a.compressedSize):"—";return`
                     <div
                         class="file-row"
                         data-index="${n}"
@@ -603,7 +603,7 @@
                         </div>
 
                         <div class="cell size-cell">
-                            ${q?"shared":H(a.compressedSize)}
+                            ${sr?"shared":H(a.compressedSize)}
                         </div>
 
                         <div class="cell size-cell">
@@ -617,7 +617,7 @@
                                     ${a.method.toLowerCase()}
                                 "
                             >
-                                ${q?"RIPC SOLID":a.method}
+                                ${sr?"RIPC SOLID":a.method}
                             </span>
                         </div>
 
