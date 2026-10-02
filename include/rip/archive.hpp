@@ -28,6 +28,12 @@ namespace rip
 
         std::uint64_t file_size{};
 
+        std::uint32_t flags{};
+
+        bool solid_ripc{};
+
+        std::uint64_t solid_compressed_size{};
+
         std::vector<ArchiveEntryInfo> entries;
     };
 
