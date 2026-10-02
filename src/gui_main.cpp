@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QDebug>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -42,6 +43,57 @@ namespace
 
     std::atomic_bool g_archive_operation_active = false;
 
+    class RipWebPage final : public QWebEnginePage
+    {
+    public:
+        explicit RipWebPage(
+            QWebEngineProfile *profile,
+            QObject *parent = nullptr)
+            : QWebEnginePage(
+                  profile,
+                  parent)
+        {
+        }
+
+    protected:
+        void javaScriptConsoleMessage(
+            JavaScriptConsoleMessageLevel level,
+            const QString &message,
+            int lineNumber,
+            const QString &sourceID) override
+        {
+            const char *label = "LOG";
+
+            switch (level)
+            {
+            case InfoMessageLevel:
+                label = "INFO";
+                break;
+
+            case WarningMessageLevel:
+                label = "WARN";
+                break;
+
+            case ErrorMessageLevel:
+                label = "ERROR";
+                break;
+            }
+
+            qWarning().noquote()
+                << "[RIP WebEngine]"
+                << label
+                << sourceID
+                << lineNumber
+                << message;
+
+            QWebEnginePage::javaScriptConsoleMessage(
+                level,
+                message,
+                lineNumber,
+                sourceID);
+        }
+    };
+
     class RipBridge final : public QObject
     {
         Q_OBJECT
@@ -84,6 +136,10 @@ namespace
         void requestStarted(
             QWebEngineUrlRequestJob *job) override
         {
+            qDebug().noquote()
+                << "[RIP WebEngine] request:"
+                << job->requestUrl();
+
             QString relative =
                 QUrl::fromPercentEncoding(
                     job->requestUrl()
@@ -113,6 +169,12 @@ namespace
                 QFileInfo(candidate)
                     .canonicalFilePath();
 
+            qDebug().noquote()
+                << "[RIP WebEngine] root:"
+                << canonicalRoot
+                << "file:"
+                << canonicalFile;
+
             if (canonicalRoot.isEmpty() ||
                 canonicalFile.isEmpty() ||
                 ((!canonicalFile.startsWith(
@@ -120,6 +182,10 @@ namespace
                     QDir::separator())) &&
                  canonicalFile != canonicalRoot))
             {
+                qWarning().noquote()
+                    << "[RIP WebEngine] rejected path:"
+                    << candidate;
+
                 job->fail(
                     QWebEngineUrlRequestJob::UrlNotFound);
                 return;
@@ -131,6 +197,10 @@ namespace
             if (!file->open(
                     QIODevice::ReadOnly))
             {
+                qWarning().noquote()
+                    << "[RIP WebEngine] unable to open:"
+                    << canonicalFile;
+
                 delete file;
 
                 job->fail(
@@ -1691,15 +1761,17 @@ int main(
         QByteArrayLiteral("rip"));
 
     scheme.setSyntax(
-        QWebEngineUrlScheme::Syntax::HostAndPort);
+        QWebEngineUrlScheme::Syntax::Host);
 
-    scheme.setDefaultPort(0);
+    scheme.setDefaultPort(
+        QWebEngineUrlScheme::PortUnspecified);
 
     scheme.setFlags(
         QWebEngineUrlScheme::SecureScheme |
         QWebEngineUrlScheme::LocalScheme |
         QWebEngineUrlScheme::LocalAccessAllowed |
-        QWebEngineUrlScheme::CorsEnabled);
+        QWebEngineUrlScheme::CorsEnabled |
+        QWebEngineUrlScheme::FetchApiAllowed);
 
     QWebEngineUrlScheme::registerScheme(
         scheme);
@@ -1737,9 +1809,19 @@ int main(
     window->setWindowTitle(
         QStringLiteral("RIP - Loading..."));
 
+    QWebEngineProfile *profile =
+        QWebEngineProfile::defaultProfile();
+
     auto *view =
         new QWebEngineView(
             window);
+
+    auto *page =
+        new RipWebPage(
+            profile,
+            view);
+
+    view->setPage(page);
 
     view->setZoomFactor(1.0);
 
@@ -1759,9 +1841,6 @@ int main(
     RipBridge bridge;
 
     g_bridge = &bridge;
-
-    QWebEngineProfile *profile =
-        QWebEngineProfile::defaultProfile();
 
     auto *schemeHandler =
         new RipSchemeHandler(
@@ -1795,15 +1874,50 @@ int main(
 
     QObject::connect(
         view,
+        &QWebEngineView::loadStarted,
+        []
+        {
+            qDebug().noquote()
+                << "[RIP WebEngine] load started";
+        });
+
+    QObject::connect(
+        view,
+        &QWebEngineView::loadProgress,
+        [](int progress)
+        {
+            qDebug()
+                << "[RIP WebEngine] load progress:"
+                << progress;
+        });
+
+    QObject::connect(
+        view,
+        &QWebEngineView::urlChanged,
+        [](const QUrl &url)
+        {
+            qDebug().noquote()
+                << "[RIP WebEngine] URL:"
+                << url;
+        });
+
+    QObject::connect(
+        view,
         &QWebEngineView::loadFinished,
         [](bool ok)
         {
+            qDebug()
+                << "[RIP WebEngine] load finished:"
+                << ok;
+
             if (!ok)
             {
                 show_error_dialog(
                     QStringLiteral("RIP"),
                     QStringLiteral(
-                        "Unable to load the RIP GUI."));
+                        "Unable to load the RIP GUI.\n\n"
+                        "Run rip-gui from a terminal to see "
+                        "the WebEngine diagnostics."));
             }
         });
 
