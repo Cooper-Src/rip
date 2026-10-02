@@ -11,15 +11,19 @@ permissions:
 jobs:
   windows:
     name: Build Windows ${{ matrix.arch }}
+
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: ARM64
             runner: windows-11-vs2026-arm
-            qt_arch: win64_msvc2022_arm64_cross_compiled
+            qt_host: windows_arm64
+            qt_arch: win64_msvc2022_arm64
+
           - arch: x64
             runner: windows-2025-vs2026
+            qt_host: windows
             qt_arch: win64_msvc2022_64
 
     runs-on: ${{ matrix.runner }}
@@ -32,7 +36,7 @@ jobs:
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.10.3"
-          host: windows
+          host: ${{ matrix.qt_host }}
           target: desktop
           arch: ${{ matrix.qt_arch }}
           modules: qtwebengine qtwebchannel qtpositioning
@@ -79,12 +83,14 @@ jobs:
 
   linux:
     name: Build Linux ${{ matrix.arch }}
+
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x64
             runner: ubuntu-24.04
+
           - arch: arm64
             runner: ubuntu-24.04-arm
 
@@ -97,7 +103,14 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake ninja-build build-essential git qt6-base-dev qt6-webengine-dev qt6-webchannel-dev
+          sudo apt-get install -y \
+            cmake \
+            ninja-build \
+            build-essential \
+            git \
+            qt6-base-dev \
+            qt6-webengine-dev \
+            qt6-webchannel-dev
 
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -125,9 +138,11 @@ jobs:
 
   release:
     name: Publish GitHub Release
+
     needs:
       - windows
       - linux
+
     runs-on: ubuntu-24.04
 
     steps:
