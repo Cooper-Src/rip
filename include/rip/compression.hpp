@@ -9,7 +9,7 @@
 namespace rip::compression
 {
 
-constexpr std::uint8_t RIPC_VERSION = 9;
+constexpr std::uint8_t RIPC_VERSION = 10;
 
 enum class CompressionLevel : std::uint8_t
 {
