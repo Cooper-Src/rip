@@ -1850,121 +1850,109 @@ namespace rip::compression
     {
         output.clear();
 
-        /*
-         * Keep the original LZ strategy in the candidate set, then
-         * optionally run the maximum parser as a size-first second
-         * pass. The final decision is made using the actual encoded
-         * payload size, not the intermediate LZ stream size, so a
-         * parser can never win merely because its raw token stream
-         * happens to look smaller.
-         */
-        std::vector<Bytes> raw_candidates;
-
-        raw_candidates.push_back(
+        const auto raw =
             lz_compress(
                 input,
-                level));
+                level);
 
-        if (level ==
-                CompressionLevel::Balanced &&
-            input.size() >= 4096)
-        {
-            raw_candidates.push_back(
-                lz_compress(
-                    input,
-                    CompressionLevel::Maximum));
-        }
+        // Existing v0.5 byte-oriented Huffman path.
+        std::vector<std::byte>
+            huffman_payload;
 
-        std::uint8_t selected_flags =
-            FLAG_STORED;
-        std::span<const std::byte> selected_payload =
-            input;
-
-        Bytes selected_owned_payload;
-
-        auto consider_payload =
-            [&](std::uint8_t flags,
-                const Bytes& payload)
-            {
-                if (payload.size() <
-                    selected_payload.size())
-                {
-                    selected_owned_payload =
-                        payload;
-
-                    selected_payload =
-                        selected_owned_payload;
-
-                    selected_flags =
-                        flags;
-                }
-            };
+        const bool huffman_valid =
+            huffman_compress(
+                raw,
+                huffman_payload);
 
         /*
-         * Stored data is the baseline. Every compressed candidate has
-         * to beat it, so incompressible input can never expand by more
-         * than the fixed RIPC header.
+         * Token-Huffman construction is substantially more
+         * expensive than the byte-Huffman path. If the LZ
+         * stream is already materially larger than the input,
+         * it is overwhelmingly dominated by literals/control
+         * bytes and a stored block is the useful fallback.
+         *
+         * Keep a small-input allowance so short files still
+         * get the best adaptive choice.
          */
-        for (const auto& raw :
-             raw_candidates)
+        const std::size_t token_huffman_slack =
+            std::max<std::size_t>(
+                4096,
+                input.size() / 16);
+
+        const bool try_token_huffman =
+            input.size() <= 8192 ||
+            raw.size() <=
+                input.size() +
+                token_huffman_slack;
+
+        std::vector<std::byte>
+            token_huffman_payload;
+
+        bool token_huffman_valid = false;
+
+        if (try_token_huffman)
         {
-            consider_payload(
-                0,
-                raw);
+            std::vector<Token>
+                tokens;
 
-            std::vector<std::byte>
-                huffman_payload;
-
-            if (huffman_compress(
+            if (!decode_tokens(
                     raw,
-                    huffman_payload) &&
-                huffman_payload.size() <
-                    selected_payload.size())
+                    tokens,
+                    error))
             {
-                consider_payload(
-                    FLAG_HUFFMAN,
-                    huffman_payload);
+                return false;
             }
 
-            const std::size_t token_huffman_slack =
-                std::max<std::size_t>(
-                    4096,
-                    input.size() / 16);
+            token_huffman_valid =
+                huffman_encode_tokens(
+                    tokens,
+                    token_huffman_payload,
+                    error);
+        }
 
-            const bool try_token_huffman =
-                input.size() <= 8192 ||
-                raw.size() <=
-                    input.size() +
-                    token_huffman_slack;
+        std::uint8_t flags = 0;
 
-            if (try_token_huffman)
-            {
-                std::vector<Token>
-                    tokens;
+        std::span<const std::byte>
+            selected_payload =
+                raw;
 
-                if (!decode_tokens(
-                        raw,
-                        tokens,
-                        error))
-                {
-                    return false;
-                }
+        /*
+         * RIPC can now choose a true stored block.
+         * This is important for incompressible data:
+         * the LZ token stream carries control-byte
+         * overhead, while a stored block preserves the
+         * original bytes exactly.
+         */
+        if (input.size() <
+            selected_payload.size())
+        {
+            flags =
+                FLAG_STORED;
 
-                std::vector<std::byte>
-                    token_huffman_payload;
+            selected_payload =
+                input;
+        }
 
-                if (huffman_encode_tokens(
-                        tokens,
-                        token_huffman_payload,
-                        error) &&
-                    token_huffman_payload.size() <
-                        selected_payload.size())
-                {
-                    consider_payload(
-                        FLAG_TOKEN_HUFFMAN,
-                        token_huffman_payload);
-                }
-            }
+        if (huffman_valid &&
+            huffman_payload.size() <
+                selected_payload.size())
+        {
+            flags =
+                FLAG_HUFFMAN;
+
+            selected_payload =
+                huffman_payload;
+        }
+
+        if (token_huffman_valid &&
+            token_huffman_payload.size() <
+                selected_payload.size())
+        {
+            flags =
+                FLAG_TOKEN_HUFFMAN;
+
+            selected_payload =
+                token_huffman_payload;
         }
 
         output.reserve(
@@ -1986,7 +1974,7 @@ namespace rip::compression
 
         write_u8(
             output,
-            selected_flags);
+            flags);
 
         write_u16(
             output,
@@ -2004,7 +1992,6 @@ namespace rip::compression
 
         return true;
     }
-
 
     bool decompress(
         std::span<const std::byte> input,
