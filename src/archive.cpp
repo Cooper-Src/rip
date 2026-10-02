@@ -176,6 +176,18 @@ namespace rip
             write_u64(output, header.entry_count);
             write_u64(output, header.index_offset);
             write_u64(output, header.index_size);
+
+            if (header.header_size >=
+                SOLID_RIPC_HEADER_SIZE)
+            {
+                write_u64(
+                    output,
+                    header.solid_data_offset);
+
+                write_u64(
+                    output,
+                    header.solid_compressed_size);
+            }
         }
 
         ArchiveHeader read_header(std::istream &input)
@@ -203,6 +215,39 @@ namespace rip
             {
                 throw std::runtime_error(
                     "Invalid RIP header size.");
+            }
+
+            if (header.header_size > ARCHIVE_HEADER_SIZE &&
+                header.header_size < SOLID_RIPC_HEADER_SIZE)
+            {
+                throw std::runtime_error(
+                    "Invalid RIP extended header size.");
+            }
+
+            if (header.header_size >=
+                SOLID_RIPC_HEADER_SIZE)
+            {
+                header.solid_data_offset =
+                    read_u64(input);
+
+                header.solid_compressed_size =
+                    read_u64(input);
+
+                if (header.header_size >
+                    SOLID_RIPC_HEADER_SIZE)
+                {
+                    input.seekg(
+                        static_cast<std::streamoff>(
+                            header.header_size -
+                            SOLID_RIPC_HEADER_SIZE),
+                        std::ios::cur);
+
+                    if (!input)
+                    {
+                        throw std::runtime_error(
+                            "Unable to skip extended RIP header.");
+                    }
+                }
             }
 
             return header;
@@ -420,18 +465,43 @@ namespace rip
 
             ArchiveHeader header = read_header(archive);
 
-            // Current format has no additional header fields.
-            // If a future minor version adds fields, this is where they
-            // can be skipped safely.
-            if (header.header_size > ARCHIVE_HEADER_SIZE)
+            if (header.flags &
+                ~static_cast<std::uint32_t>(
+                    ARCHIVE_FLAG_SOLID_RIPC))
             {
-                archive.seekg(
-                    static_cast<std::streamoff>(header.header_size));
+                throw std::runtime_error(
+                    "Unsupported RIP archive flags.");
+            }
 
-                if (!archive)
+            if ((header.flags &
+                 ARCHIVE_FLAG_SOLID_RIPC) != 0)
+            {
+                if (header.header_size <
+                    SOLID_RIPC_HEADER_SIZE)
                 {
                     throw std::runtime_error(
-                        "Unable to skip extended RIP header.");
+                        "Solid RIPC requires an extended RIP header.");
+                }
+
+                if (header.solid_data_offset >
+                    file_size)
+                {
+                    throw std::runtime_error(
+                        "Solid RIPC data is outside the archive.");
+                }
+
+                if (header.solid_compressed_size >
+                    file_size - header.solid_data_offset)
+                {
+                    throw std::runtime_error(
+                        "Solid RIPC data extends beyond the archive.");
+                }
+
+                if (header.solid_data_offset <
+                    header.header_size)
+                {
+                    throw std::runtime_error(
+                        "Invalid solid RIPC data offset.");
                 }
             }
 
@@ -439,7 +509,6 @@ namespace rip
             {
                 throw std::runtime_error(
                     "Invalid RIP index offset.");
-            }
 
             if (header.index_offset > file_size)
             {
@@ -562,19 +631,6 @@ namespace rip
                     }
                 }
 
-                if (entry.data_offset > info.file_size)
-                {
-                    throw std::runtime_error(
-                        "RIP file data offset is outside the archive.");
-                }
-
-                if (entry.compressed_size >
-                    info.file_size - entry.data_offset)
-                {
-                    throw std::runtime_error(
-                        "RIP file data extends beyond the archive.");
-                }
-
                 if (entry.compression != COMPRESSION_STORE &&
                     entry.compression != COMPRESSION_DEFLATE &&
                     entry.compression != COMPRESSION_RIPC)
@@ -582,6 +638,37 @@ namespace rip
                     throw std::runtime_error(
                         "Unsupported compression method: " +
                         std::to_string(entry.compression));
+                }
+
+                const bool solid_ripc =
+                    (info.header.flags &
+                     ARCHIVE_FLAG_SOLID_RIPC) != 0;
+
+                if (solid_ripc)
+                {
+                    if (entry.compression !=
+                        COMPRESSION_RIPC ||
+                        entry.data_offset != 0 ||
+                        entry.compressed_size != 0)
+                    {
+                        throw std::runtime_error(
+                            "Invalid solid RIPC entry metadata.");
+                    }
+                }
+                else
+                {
+                    if (entry.data_offset > info.file_size)
+                    {
+                        throw std::runtime_error(
+                            "RIP file data offset is outside the archive.");
+                    }
+
+                    if (entry.compressed_size >
+                        info.file_size - entry.data_offset)
+                    {
+                        throw std::runtime_error(
+                            "RIP file data extends beyond the archive.");
+                    }
                 }
                 if (entry.compression != COMPRESSION_STORE &&
     entry.compression != COMPRESSION_DEFLATE &&
