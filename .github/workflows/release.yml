@@ -17,7 +17,7 @@ jobs:
         include:
           - arch: ARM64
             runner: windows-11-vs2026-arm
-            qt_arch: win64_msvc2022_arm64
+            qt_arch: win64_msvc2022_arm64_cross_compiled
           - arch: x64
             runner: windows-2025-vs2026
             qt_arch: win64_msvc2022_64
@@ -31,11 +31,11 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.10.2"
+          version: "6.12.0"
           host: windows
           target: desktop
           arch: ${{ matrix.qt_arch }}
-          modules: qtwebengine qtwebchannel
+          modules: qtwebengine qtwebchannel qtpositioning
           cache: true
 
       - name: Configure
