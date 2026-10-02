@@ -32,6 +32,7 @@ constexpr std::uint8_t VERSION = 2;
 constexpr std::uint8_t V3_VERSION = 3;
 constexpr std::uint8_t V4_VERSION = 4;
 constexpr std::uint8_t V5_VERSION = 5;
+constexpr std::uint8_t V6_VERSION = 6;
 
 constexpr std::size_t LITERAL_SYMBOLS = 256;
 
@@ -2293,6 +2294,475 @@ bool huffman_decode_tokens_v2(
 }
 
 
+bool huffman_encode_tokens_v6(
+    std::span<const Token> tokens,
+    std::vector<std::byte>& output,
+    std::string* error)
+{
+    constexpr std::size_t MAIN_SYMBOLS = 261;
+    constexpr std::size_t TABLE_SIZE =
+        MAIN_SYMBOLS +
+        LENGTH_SYMBOLS +
+        DISTANCE_SYMBOLS;
+
+    constexpr std::size_t HEADER_SIZE =
+        4 + 1 + 1 + 2 + 8 + 8;
+
+    std::array<std::uint8_t, TABLE_SIZE> lengths{};
+
+    /*
+     * V5 stores the same three Huffman trees as V4, but compresses
+     * the 4-bit code-length table itself with tiny zero/raw runs.
+     *
+     * Tag format:
+     *   0xxxxxxx -> zero run of (tag + 1) entries
+     *   1xxxxxxx -> raw run of (tag & 0x7f) + 1 entries,
+     *                followed by packed nibbles.
+     *
+     * Only code lengths 0..15 are legal, so two raw lengths fit
+     * in every byte. The encoder chooses V5 only when this table
+     * is actually smaller than the fixed V4 table.
+     */
+
+    std::array<std::uint64_t, MAIN_SYMBOLS> main_frequencies{};
+    std::array<std::uint64_t, LENGTH_SYMBOLS> length_frequencies{};
+    std::array<std::uint64_t, DISTANCE_SYMBOLS> distance_frequencies{};
+
+    std::uint64_t event_count = 0;
+
+    std::array<std::uint16_t, 4> recent_distances{};
+    std::size_t recent_count = 0;
+
+    const auto find_recent_distance =
+        [&](std::uint16_t distance)
+    {
+        for (std::size_t i = 0;
+             i < recent_count;
+             ++i)
+        {
+            if (recent_distances[i] == distance)
+            {
+                return i;
+            }
+        }
+
+        return recent_count;
+    };
+
+    const auto touch_distance =
+        [&](std::uint16_t distance)
+    {
+        const std::size_t existing =
+            find_recent_distance(distance);
+
+        if (existing < recent_count)
+        {
+            if (existing == 0)
+            {
+                return;
+            }
+
+            for (std::size_t i = existing; i > 0; --i)
+            {
+                recent_distances[i] =
+                    recent_distances[i - 1];
+            }
+
+            recent_distances[0] =
+                distance;
+
+            return;
+        }
+
+        const std::size_t new_count =
+            std::min<std::size_t>(
+                recent_count + 1,
+                recent_distances.size());
+
+        for (std::size_t i = new_count; i > 1; --i)
+        {
+            recent_distances[i - 1] =
+                recent_distances[i - 2];
+        }
+
+        recent_distances[0] =
+            distance;
+
+        recent_count =
+            new_count;
+    };
+
+    for (const Token& token : tokens)
+    {
+        switch (token.type)
+        {
+        case TokenType::Literal:
+        {
+            if (token.literals.size() != 1)
+            {
+                set_error(error, "Invalid literal token.");
+                return false;
+            }
+
+            ++main_frequencies[
+                static_cast<std::uint8_t>(token.literals.front())];
+            ++event_count;
+            break;
+        }
+
+        case TokenType::LiteralRun:
+        {
+            if (token.literals.empty() ||
+                token.literals.size() > 255)
+            {
+                set_error(error, "Invalid literal run.");
+                return false;
+            }
+
+            for (const std::byte value : token.literals)
+            {
+                ++main_frequencies[
+                    static_cast<std::uint8_t>(value)];
+                ++event_count;
+            }
+
+            break;
+        }
+
+        case TokenType::Match:
+        {
+            std::uint8_t length_symbol = 0;
+            unsigned int length_extra_bits = 0;
+            std::uint32_t length_extra = 0;
+            std::uint8_t distance_symbol = 0;
+            unsigned int distance_extra_bits = 0;
+            std::uint32_t distance_extra = 0;
+
+            if (!encode_length(
+                    token.length,
+                    length_symbol,
+                    length_extra_bits,
+                    length_extra) ||
+                !encode_distance(
+                    token.distance,
+                    distance_symbol,
+                    distance_extra_bits,
+                    distance_extra))
+            {
+                set_error(error, "Invalid RIPC match parameters.");
+                return false;
+            }
+
+            const std::size_t recent_index =
+                find_recent_distance(token.distance);
+
+            if (recent_index < recent_count)
+            {
+                ++main_frequencies[
+                    257 + recent_index];
+            }
+            else
+            {
+                ++main_frequencies[256];
+                ++distance_frequencies[distance_symbol];
+            }
+
+            ++length_frequencies[length_symbol];
+            ++event_count;
+
+            touch_distance(token.distance);
+            break;
+        }
+
+        case TokenType::MatchRepeat:
+        {
+            std::uint8_t length_symbol = 0;
+            unsigned int length_extra_bits = 0;
+            std::uint32_t length_extra = 0;
+
+            if (!encode_length(
+                    token.length,
+                    length_symbol,
+                    length_extra_bits,
+                    length_extra))
+            {
+                set_error(error, "Invalid repeated match length.");
+                return false;
+            }
+
+            ++main_frequencies[257];
+            ++length_frequencies[length_symbol];
+            ++event_count;
+            break;
+        }
+
+        default:
+            set_error(error, "Unknown token type.");
+            return false;
+        }
+    }
+
+    std::array<std::uint8_t, MAIN_SYMBOLS> main_lengths{};
+    std::array<std::uint8_t, LENGTH_SYMBOLS> length_lengths{};
+    std::array<std::uint8_t, DISTANCE_SYMBOLS> distance_lengths{};
+
+    if (!build_huffman_lengths(
+            main_frequencies,
+            main_lengths) ||
+        !build_huffman_lengths(
+            length_frequencies,
+            length_lengths) ||
+        !build_huffman_lengths(
+            distance_frequencies,
+            distance_lengths))
+    {
+        set_error(error, "Unable to build RIPC v5 Huffman trees.");
+        return false;
+    }
+
+    for (const auto length : main_lengths)
+    {
+        if (length > 15)
+        {
+            set_error(error, "RTH1 v5 requires Huffman code lengths <= 15.");
+            return false;
+        }
+    }
+
+    for (const auto length : length_lengths)
+    {
+        if (length > 15)
+        {
+            set_error(error, "RTH1 v5 length tree is too deep.");
+            return false;
+        }
+    }
+
+    for (const auto length : distance_lengths)
+    {
+        if (length > 15)
+        {
+            set_error(error, "RTH1 v5 distance tree is too deep.");
+            return false;
+        }
+    }
+
+    std::array<std::vector<std::uint8_t>, MAIN_SYMBOLS> main_codes;
+    std::array<std::vector<std::uint8_t>, LENGTH_SYMBOLS> length_codes;
+    std::array<std::vector<std::uint8_t>, DISTANCE_SYMBOLS> distance_codes;
+
+    if (!build_canonical_codes(
+            main_lengths,
+            main_codes) ||
+        !build_canonical_codes(
+            length_lengths,
+            length_codes) ||
+        !build_canonical_codes(
+            distance_lengths,
+            distance_codes))
+    {
+        set_error(error, "Unable to build RIPC v5 Huffman codes.");
+        return false;
+    }
+
+    recent_distances.fill(0);
+    recent_count = 0;
+
+    BitWriter writer;
+
+    for (const Token& token : tokens)
+    {
+        if (token.type == TokenType::Literal ||
+            token.type == TokenType::LiteralRun)
+        {
+            for (const std::byte value : token.literals)
+            {
+                writer.write(
+                    main_codes[
+                        static_cast<std::uint8_t>(value)]);
+            }
+
+            continue;
+        }
+
+        if (token.type == TokenType::Match)
+        {
+            std::uint8_t length_symbol = 0;
+            unsigned int length_extra_bits = 0;
+            std::uint32_t length_extra = 0;
+            std::uint8_t distance_symbol = 0;
+            unsigned int distance_extra_bits = 0;
+            std::uint32_t distance_extra = 0;
+
+            if (!encode_length(
+                    token.length,
+                    length_symbol,
+                    length_extra_bits,
+                    length_extra) ||
+                !encode_distance(
+                    token.distance,
+                    distance_symbol,
+                    distance_extra_bits,
+                    distance_extra))
+            {
+                set_error(error, "Invalid RIPC match parameters.");
+                return false;
+            }
+
+            const std::size_t recent_index =
+                find_recent_distance(token.distance);
+
+            if (recent_index < recent_count)
+            {
+                writer.write(
+                    main_codes[
+                        257 + recent_index]);
+            }
+            else
+            {
+                writer.write(
+                    main_codes[256]);
+
+                writer.write(
+                    distance_codes[
+                        distance_symbol]);
+
+                writer.write_bits(
+                    distance_extra,
+                    distance_extra_bits);
+            }
+
+            writer.write(
+                length_codes[
+                    length_symbol]);
+
+            writer.write_bits(
+                length_extra,
+                length_extra_bits);
+
+            touch_distance(token.distance);
+            continue;
+        }
+
+        if (token.type == TokenType::MatchRepeat)
+        {
+            std::uint8_t length_symbol = 0;
+            unsigned int length_extra_bits = 0;
+            std::uint32_t length_extra = 0;
+
+            if (!encode_length(
+                    token.length,
+                    length_symbol,
+                    length_extra_bits,
+                    length_extra))
+            {
+                set_error(error, "Invalid repeated match length.");
+                return false;
+            }
+
+            writer.write(main_codes[257]);
+            writer.write(length_codes[length_symbol]);
+            writer.write_bits(length_extra, length_extra_bits);
+        }
+    }
+
+    const auto bitstream = writer.finish();
+
+    std::size_t table_index = 0;
+    auto append_tree = [&](const auto& tree_lengths)
+    {
+        for (const auto length : tree_lengths)
+        {
+            lengths[table_index++] = length;
+        }
+    };
+
+    append_tree(main_lengths);
+    append_tree(length_lengths);
+    append_tree(distance_lengths);
+
+    std::vector<std::byte> table;
+
+    for (std::size_t i = 0; i < lengths.size();)
+    {
+        if (lengths[i] == 0)
+        {
+            const std::size_t start = i;
+
+            while (i < lengths.size() &&
+                   lengths[i] == 0 &&
+                   i - start < 128)
+            {
+                ++i;
+            }
+
+            table.push_back(
+                static_cast<std::byte>(
+                    static_cast<std::uint8_t>((i - start) - 1)));
+            continue;
+        }
+
+        const std::size_t start = i;
+
+        while (i < lengths.size() &&
+               lengths[i] != 0 &&
+               i - start < 128)
+        {
+            ++i;
+        }
+
+        const std::size_t count = i - start;
+
+        table.push_back(
+            static_cast<std::byte>(
+                0x80u |
+                static_cast<std::uint8_t>(count - 1)));
+
+        for (std::size_t j = start; j < i; j += 2)
+        {
+            const std::uint8_t low = lengths[j] & 0x0Fu;
+            const std::uint8_t high =
+                j + 1 < i
+                    ? static_cast<std::uint8_t>(
+                        (lengths[j + 1] & 0x0Fu) << 4u)
+                    : 0;
+
+            table.push_back(
+                static_cast<std::byte>(low | high));
+        }
+    }
+
+    output.clear();
+    output.reserve(
+        HEADER_SIZE +
+        4 +
+        table.size() +
+        bitstream.size());
+
+    output.insert(
+        output.end(),
+        reinterpret_cast<const std::byte*>(MAGIC),
+        reinterpret_cast<const std::byte*>(MAGIC + 4));
+
+    write_u8(output, V6_VERSION);
+    write_u8(output, 0);
+    write_u16(output, 0);
+    write_u64(output, event_count);
+    write_u64(output, static_cast<std::uint64_t>(table.size()));
+
+    output.insert(
+        output.end(),
+        table.begin(),
+        table.end());
+
+    output.insert(
+        output.end(),
+        bitstream.begin(),
+        bitstream.end());
+
+    return true;
+}
+
 bool huffman_encode_tokens_v5(
     std::span<const Token> tokens,
     std::vector<std::byte>& output,
@@ -3572,6 +4042,550 @@ bool huffman_decode_tokens_v4(
     return true;
 }
 
+bool huffman_decode_tokens_v6(
+    std::span<const std::byte> input,
+    std::vector<Token>& tokens,
+    std::string* error)
+{
+    constexpr std::size_t MAIN_SYMBOLS = 261;
+    constexpr std::size_t TABLE_SIZE =
+        MAIN_SYMBOLS +
+        LENGTH_SYMBOLS +
+        DISTANCE_SYMBOLS;
+
+    constexpr std::size_t HEADER_SIZE =
+        4 + 1 + 1 + 2 + 8 + 8;
+
+    if (input.size() < HEADER_SIZE)
+    {
+        set_error(
+            error,
+            "RTH1 v6 stream is too small.");
+
+        return false;
+    }
+
+    std::size_t position = 4;
+
+    std::uint8_t version = 0;
+    std::uint8_t flags = 0;
+    std::uint16_t reserved = 0;
+    std::uint64_t event_count = 0;
+    std::uint64_t table_size = 0;
+
+    if (!read_u8(
+            input,
+            position,
+            version) ||
+        !read_u8(
+            input,
+            position,
+            flags) ||
+        !read_u16(
+            input,
+            position,
+            reserved) ||
+        !read_u64(
+            input,
+            position,
+            event_count) ||
+        !read_u64(
+            input,
+            position,
+            table_size))
+    {
+        set_error(
+            error,
+            "Invalid RTH1 v6 header.");
+
+        return false;
+    }
+
+    if (version != V6_VERSION ||
+        flags != 0 ||
+        reserved != 0 ||
+        event_count >
+            static_cast<std::uint64_t>(
+                std::numeric_limits<
+                    std::size_t>::max()) ||
+        table_size == 0 ||
+        table_size >
+            static_cast<std::uint64_t>(
+                input.size() - HEADER_SIZE))
+    {
+        set_error(
+            error,
+            "Unsupported RTH1 v6 header.");
+
+        return false;
+    }
+
+    const std::size_t encoded_table_size =
+        static_cast<std::size_t>(
+            table_size);
+
+    const std::size_t table_end =
+        HEADER_SIZE +
+        encoded_table_size;
+
+    std::array<
+        std::uint8_t,
+        TABLE_SIZE>
+        lengths{};
+
+    std::size_t table_position =
+        HEADER_SIZE;
+
+    std::size_t decoded_lengths = 0;
+
+    while (decoded_lengths < TABLE_SIZE)
+    {
+        if (table_position >= table_end)
+        {
+            set_error(
+                error,
+                "Truncated RTH1 v6 table.");
+
+            return false;
+        }
+
+        const std::uint8_t tag =
+            static_cast<std::uint8_t>(
+                input[table_position++]);
+
+        const std::size_t count =
+            static_cast<std::size_t>(
+                tag & 0x7Fu) +
+            1;
+
+        if (count >
+            TABLE_SIZE -
+                decoded_lengths)
+        {
+            set_error(
+                error,
+                "Invalid RTH1 v6 table run.");
+
+            return false;
+        }
+
+        if ((tag & 0x80u) == 0)
+        {
+            decoded_lengths += count;
+            continue;
+        }
+
+        const std::size_t packed_bytes =
+            (count + 1) / 2;
+
+        if (table_position + packed_bytes >
+            table_end)
+        {
+            set_error(
+                error,
+                "Truncated RTH1 v6 raw table run.");
+
+            return false;
+        }
+
+        for (std::size_t i = 0;
+             i < count;
+             ++i)
+        {
+            const std::uint8_t packed =
+                static_cast<std::uint8_t>(
+                    input[
+                        table_position +
+                        (i / 2)]);
+
+            const std::uint8_t length =
+                (i & 1u) == 0
+                    ? static_cast<std::uint8_t>(
+                        packed & 0x0Fu)
+                    : static_cast<std::uint8_t>(
+                        packed >> 4u);
+
+            if (length > 15)
+            {
+                set_error(
+                    error,
+                    "Invalid RTH1 v6 code length.");
+
+                return false;
+            }
+
+            lengths[
+                decoded_lengths + i] =
+                length;
+        }
+
+        table_position +=
+            packed_bytes;
+
+        decoded_lengths +=
+            count;
+    }
+
+    if (table_position !=
+        table_end)
+    {
+        set_error(
+            error,
+            "RTH1 v6 table has trailing data.");
+
+        return false;
+    }
+
+    std::array<
+        std::uint8_t,
+        MAIN_SYMBOLS>
+        main_lengths{};
+
+    std::array<
+        std::uint8_t,
+        LENGTH_SYMBOLS>
+        length_lengths{};
+
+    std::array<
+        std::uint8_t,
+        DISTANCE_SYMBOLS>
+        distance_lengths{};
+
+    std::copy_n(
+        lengths.begin(),
+        main_lengths.size(),
+        main_lengths.begin());
+
+    std::copy_n(
+        lengths.begin() +
+            static_cast<std::ptrdiff_t>(
+                main_lengths.size()),
+        length_lengths.size(),
+        length_lengths.begin());
+
+    std::copy_n(
+        lengths.begin() +
+            static_cast<std::ptrdiff_t>(
+                main_lengths.size() +
+                length_lengths.size()),
+        distance_lengths.size(),
+        distance_lengths.begin());
+
+    std::array<
+        std::vector<std::uint8_t>,
+        MAIN_SYMBOLS>
+        main_codes;
+
+    std::array<
+        std::vector<std::uint8_t>,
+        LENGTH_SYMBOLS>
+        length_codes;
+
+    std::array<
+        std::vector<std::uint8_t>,
+        DISTANCE_SYMBOLS>
+        distance_codes;
+
+    if (!build_canonical_codes(
+            main_lengths,
+            main_codes) ||
+        !build_canonical_codes(
+            length_lengths,
+            length_codes) ||
+        !build_canonical_codes(
+            distance_lengths,
+            distance_codes))
+    {
+        set_error(
+            error,
+            "Invalid RTH1 v6 Huffman tables.");
+
+        return false;
+    }
+
+    std::vector<HuffmanNode>
+        main_tree;
+
+    std::vector<HuffmanNode>
+        length_tree;
+
+    std::vector<HuffmanNode>
+        distance_tree;
+
+    if (!build_decode_tree(
+            main_lengths,
+            main_codes,
+            main_tree,
+            error) ||
+        !build_decode_tree(
+            length_lengths,
+            length_codes,
+            length_tree,
+            error) ||
+        !build_decode_tree(
+            distance_lengths,
+            distance_codes,
+            distance_tree,
+            error))
+    {
+        return false;
+    }
+
+    BitReader reader(
+        input.subspan(
+            table_end));
+
+    tokens.clear();
+
+    tokens.reserve(
+        static_cast<std::size_t>(
+            event_count));
+
+    std::array<
+        std::uint16_t,
+        4>
+        recent_distances{};
+
+    std::size_t recent_count = 0;
+
+    const auto touch_distance =
+        [&](std::uint16_t distance)
+    {
+        std::size_t existing =
+            recent_count;
+
+        for (std::size_t i = 0;
+             i < recent_count;
+             ++i)
+        {
+            if (recent_distances[i] ==
+                distance)
+            {
+                existing = i;
+                break;
+            }
+        }
+
+        if (existing < recent_count)
+        {
+            if (existing == 0)
+            {
+                return;
+            }
+
+            for (std::size_t i = existing;
+                 i > 0;
+                 --i)
+            {
+                recent_distances[i] =
+                    recent_distances[i - 1];
+            }
+
+            recent_distances[0] =
+                distance;
+
+            return;
+        }
+
+        const std::size_t new_count =
+            std::min<std::size_t>(
+                recent_count + 1,
+                recent_distances.size());
+
+        for (std::size_t i = new_count;
+             i > 1;
+             --i)
+        {
+            recent_distances[i - 1] =
+                recent_distances[i - 2];
+        }
+
+        recent_distances[0] =
+            distance;
+
+        recent_count =
+            new_count;
+    };
+
+    for (std::uint64_t i = 0;
+         i < event_count;
+         ++i)
+    {
+        int symbol = -1;
+
+        if (!decode_symbol(
+                reader,
+                main_tree,
+                symbol))
+        {
+            set_error(
+                error,
+                "Invalid RTH1 v6 symbol stream.");
+
+            return false;
+        }
+
+        if (symbol >= 0 &&
+            symbol < 256)
+        {
+            Token token;
+
+            token.type =
+                TokenType::Literal;
+
+            token.literals.push_back(
+                static_cast<std::byte>(
+                    symbol));
+
+            tokens.push_back(
+                std::move(token));
+
+            continue;
+        }
+
+        if (symbol < 256 ||
+            symbol > 260)
+        {
+            set_error(
+                error,
+                "Unknown RTH1 v6 main symbol.");
+
+            return false;
+        }
+
+        int length_symbol = -1;
+
+        if (!decode_symbol(
+                reader,
+                length_tree,
+                length_symbol))
+        {
+            set_error(
+                error,
+                "Invalid RTH1 v6 length stream.");
+
+            return false;
+        }
+
+        std::size_t length = 0;
+
+        if (!decode_length(
+                static_cast<std::uint8_t>(
+                    length_symbol),
+                reader,
+                length))
+        {
+            set_error(
+                error,
+                "Invalid RTH1 v6 match length.");
+
+            return false;
+        }
+
+        Token token;
+
+        if (symbol == 256)
+        {
+            int distance_symbol = -1;
+
+            if (!decode_symbol(
+                    reader,
+                    distance_tree,
+                    distance_symbol))
+            {
+                set_error(
+                    error,
+                    "Invalid RTH1 v6 distance stream.");
+
+                return false;
+            }
+
+            std::uint16_t distance = 0;
+
+            if (!decode_distance(
+                    static_cast<std::uint8_t>(
+                        distance_symbol),
+                    reader,
+                    distance))
+            {
+                set_error(
+                    error,
+                    "Invalid RTH1 v6 match distance.");
+
+                return false;
+            }
+
+            token.type =
+                TokenType::Match;
+
+            token.distance =
+                distance;
+
+            token.length =
+                length;
+
+            touch_distance(
+                distance);
+        }
+        else if (symbol == 257)
+        {
+            if (recent_count == 0 ||
+                recent_distances[0] == 0)
+            {
+                set_error(
+                    error,
+                    "RTH1 v6 previous match has no cached distance.");
+
+                return false;
+            }
+
+            token.type =
+                TokenType::MatchRepeat;
+
+            token.distance =
+                recent_distances[0];
+
+            token.length =
+                length;
+        }
+        else
+        {
+            const std::size_t recent_index =
+                static_cast<std::size_t>(
+                    symbol - 257);
+
+            if (recent_index >= recent_count ||
+                recent_distances[
+                    recent_index] == 0)
+            {
+                set_error(
+                    error,
+                    "RTH1 v6 cached match refers to an empty distance slot.");
+
+                return false;
+            }
+
+            token.type =
+                TokenType::Match;
+
+            token.distance =
+                recent_distances[
+                    recent_index];
+
+            token.length =
+                length;
+
+            touch_distance(
+                token.distance);
+        }
+
+        tokens.push_back(
+            std::move(token));
+    }
+
+    return true;
+}
+
 bool huffman_decode_tokens_v5(
     std::span<const std::byte> input,
     std::vector<Token>& tokens,
@@ -4150,6 +5164,15 @@ bool huffman_encode_tokens(
     std::vector<std::byte>& output,
     std::string* error)
 {
+    std::vector<std::byte> v6;
+    std::string v6_error;
+
+    const bool v6_valid =
+        huffman_encode_tokens_v6(
+            tokens,
+            v6,
+            &v6_error);
+
     std::vector<std::byte> v5;
     std::string v5_error;
 
@@ -4195,7 +5218,8 @@ bool huffman_encode_tokens(
             v1,
             &v1_error);
 
-    if (!v5_valid &&
+    if (!v6_valid &&
+        !v5_valid &&
         !v4_valid &&
         !v3_valid &&
         !v2_valid &&
@@ -4243,6 +5267,13 @@ bool huffman_encode_tokens(
          v5.size() < selected->size()))
     {
         selected = &v5;
+    }
+
+    if (v6_valid &&
+        (!selected ||
+         v6.size() < selected->size()))
+    {
+        selected = &v6;
     }
 
     output =
@@ -4322,6 +5353,14 @@ bool huffman_decode_tokens(
     if (version == V5_VERSION)
     {
         return huffman_decode_tokens_v5(
+            input,
+            tokens,
+            error);
+    }
+
+    if (version == V6_VERSION)
+    {
+        return huffman_decode_tokens_v6(
             input,
             tokens,
             error);
