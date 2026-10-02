@@ -29,6 +29,7 @@ constexpr char MAGIC[4] =
 
 constexpr std::uint8_t LEGACY_VERSION = 1;
 constexpr std::uint8_t VERSION = 2;
+constexpr std::uint8_t V3_VERSION = 3;
 
 constexpr std::size_t LITERAL_SYMBOLS = 256;
 
@@ -1659,6 +1660,201 @@ bool huffman_encode_tokens_v2(
     return true;
 }
 
+bool huffman_encode_tokens_v3(
+    std::span<const Token> tokens,
+    std::vector<std::byte>& output,
+    std::string* error)
+{
+    std::vector<std::byte> v2;
+
+    if (!huffman_encode_tokens_v2(
+            tokens,
+            v2,
+            error))
+    {
+        return false;
+    }
+
+    constexpr std::size_t HEADER_SIZE =
+        4 + 1 + 1 + 2 + 8 + 8;
+
+    constexpr std::size_t TABLE_SIZE =
+        LITERAL_SYMBOLS +
+        V2_EVENT_SYMBOLS +
+        LENGTH_SYMBOLS +
+        DISTANCE_SYMBOLS;
+
+    constexpr std::size_t PACKED_TABLE_SIZE =
+        (TABLE_SIZE + 1) / 2;
+
+    if (v2.size() <
+        HEADER_SIZE + TABLE_SIZE)
+    {
+        set_error(
+            error,
+            "RTH1 v2 stream is too small.");
+
+        return false;
+    }
+
+    const auto table =
+        std::span<const std::byte>(
+            v2).subspan(
+                HEADER_SIZE,
+                TABLE_SIZE);
+
+    for (const std::byte value :
+         table)
+    {
+        if (static_cast<std::uint8_t>(
+                value) >
+            15)
+        {
+            set_error(
+                error,
+                "RTH1 v3 requires Huffman code lengths <= 15.");
+
+            return false;
+        }
+    }
+
+    output.clear();
+
+    output.reserve(
+        HEADER_SIZE +
+        PACKED_TABLE_SIZE +
+        v2.size() -
+        HEADER_SIZE -
+        TABLE_SIZE);
+
+    output.insert(
+        output.end(),
+        v2.begin(),
+        v2.begin() +
+            static_cast<std::ptrdiff_t>(
+                HEADER_SIZE));
+
+    output[4] =
+        static_cast<std::byte>(
+            V3_VERSION);
+
+    for (std::size_t i = 0;
+         i < TABLE_SIZE;
+         i += 2)
+    {
+        const std::uint8_t low =
+            static_cast<std::uint8_t>(
+                table[i]) &
+            0x0Fu;
+
+        const std::uint8_t high =
+            i + 1 < TABLE_SIZE
+                ? (
+                    static_cast<std::uint8_t>(
+                        table[i + 1]) &
+                    0x0Fu)
+                : 0;
+
+        output.push_back(
+            static_cast<std::byte>(
+                low |
+                static_cast<std::uint8_t>(
+                    high << 4u)));
+    }
+
+    output.insert(
+        output.end(),
+        v2.begin() +
+            static_cast<std::ptrdiff_t>(
+                HEADER_SIZE + TABLE_SIZE),
+        v2.end());
+
+    return true;
+}
+
+bool huffman_decode_tokens_v3(
+    std::span<const std::byte> input,
+    std::vector<Token>& tokens,
+    std::string* error)
+{
+    constexpr std::size_t HEADER_SIZE =
+        4 + 1 + 1 + 2 + 8 + 8;
+
+    constexpr std::size_t TABLE_SIZE =
+        LITERAL_SYMBOLS +
+        V2_EVENT_SYMBOLS +
+        LENGTH_SYMBOLS +
+        DISTANCE_SYMBOLS;
+
+    constexpr std::size_t PACKED_TABLE_SIZE =
+        (TABLE_SIZE + 1) / 2;
+
+    if (input.size() <
+        HEADER_SIZE + PACKED_TABLE_SIZE)
+    {
+        set_error(
+            error,
+            "RTH1 v3 stream is too small.");
+
+        return false;
+    }
+
+    std::vector<std::byte> expanded;
+
+    expanded.reserve(
+        HEADER_SIZE +
+        TABLE_SIZE +
+        input.size() -
+        HEADER_SIZE -
+        PACKED_TABLE_SIZE);
+
+    expanded.insert(
+        expanded.end(),
+        input.begin(),
+        input.begin() +
+            static_cast<std::ptrdiff_t>(
+                HEADER_SIZE));
+
+    expanded[4] =
+        static_cast<std::byte>(
+            VERSION);
+
+    for (std::size_t i = 0;
+         i < TABLE_SIZE;
+         ++i)
+    {
+        const std::uint8_t packed =
+            static_cast<std::uint8_t>(
+                input[
+                    HEADER_SIZE +
+                    (i / 2)]);
+
+        const std::uint8_t length =
+            (i & 1u) == 0
+                ? static_cast<std::uint8_t>(
+                    packed & 0x0Fu)
+                : static_cast<std::uint8_t>(
+                    packed >> 4u);
+
+        expanded.push_back(
+            static_cast<std::byte>(
+                length));
+    }
+
+    expanded.insert(
+        expanded.end(),
+        input.begin() +
+            static_cast<std::ptrdiff_t>(
+                HEADER_SIZE +
+                PACKED_TABLE_SIZE),
+        input.end());
+
+    return huffman_decode_tokens_v2(
+        expanded,
+        tokens,
+        error);
+}
+
 bool huffman_decode_tokens_v2(
     std::span<const std::byte> input,
     std::vector<Token>& tokens,
@@ -2482,34 +2678,69 @@ bool huffman_encode_tokens(
     std::vector<std::byte>& output,
     std::string* error)
 {
-    std::vector<std::byte> v2;
+    std::vector<std::byte> v3;
+    std::string v3_error;
 
-    if (!huffman_encode_tokens_v2(
+    const bool v3_valid =
+        huffman_encode_tokens_v3(
+            tokens,
+            v3,
+            &v3_error);
+
+    std::vector<std::byte> v2;
+    std::string v2_error;
+
+    const bool v2_valid =
+        huffman_encode_tokens_v2(
             tokens,
             v2,
-            error))
+            &v2_error);
+
+    std::vector<std::byte> v1;
+    std::string v1_error;
+
+    const bool v1_valid =
+        huffman_encode_tokens_v1(
+            tokens,
+            v1,
+            &v1_error);
+
+    if (!v3_valid &&
+        !v2_valid &&
+        !v1_valid)
     {
+        set_error(
+            error,
+            "Unable to encode RTH1 token stream.");
+
         return false;
     }
 
-    std::vector<std::byte> v1;
+    output.clear();
 
-    std::string legacy_error;
+    const std::vector<std::byte>* selected = nullptr;
 
-    if (huffman_encode_tokens_v1(
-            tokens,
-            v1,
-            &legacy_error) &&
-        v1.size() < v2.size())
+    if (v1_valid)
     {
-        output =
-            std::move(v1);
+        selected = &v1;
+    }
 
-        return true;
+    if (v2_valid &&
+        (!selected ||
+         v2.size() < selected->size()))
+    {
+        selected = &v2;
+    }
+
+    if (v3_valid &&
+        (!selected ||
+         v3.size() < selected->size()))
+    {
+        selected = &v3;
     }
 
     output =
-        std::move(v2);
+        *selected;
 
     return true;
 }
@@ -2561,6 +2792,14 @@ bool huffman_decode_tokens(
     if (version == VERSION)
     {
         return huffman_decode_tokens_v2(
+            input,
+            tokens,
+            error);
+    }
+
+    if (version == V3_VERSION)
+    {
+        return huffman_decode_tokens_v3(
             input,
             tokens,
             error);
