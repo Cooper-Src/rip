@@ -1875,7 +1875,8 @@ namespace rip::compression
                     CompressionLevel::Maximum));
         }
 
-        std::uint8_t selected_flags = 0;
+        std::uint8_t selected_flags =
+            FLAG_STORED;
         std::span<const std::byte> selected_payload =
             input;
 
