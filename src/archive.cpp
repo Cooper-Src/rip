@@ -1427,8 +1427,20 @@ if (entry.compression == COMPRESSION_STORE &&
                 << '\n'
                 << "Size:    "
                 << info.file_size
-                << " bytes\n"
+                << " bytes"
                 << '\n';
+
+            if ((info.header.flags &
+                 ARCHIVE_FLAG_SOLID_RIPC) != 0)
+            {
+                std::cout
+                    << "Solid RIPC: "
+                    << info.header.solid_compressed_size
+                    << " bytes"
+                    << '\n';
+            }
+
+            std::cout << '\n';
 
             for (const auto &[entry, path] : entries)
             {
@@ -1447,8 +1459,14 @@ if (entry.compression == COMPRESSION_STORE &&
                     << entry.original_size
                     << " bytes";
 
-                if (entry.compression !=
-                    COMPRESSION_STORE)
+                if ((info.header.flags &
+                     ARCHIVE_FLAG_SOLID_RIPC) != 0)
+                {
+                    std::cout
+                        << "  SOLID RIPC";
+                }
+                else if (entry.compression !=
+                         COMPRESSION_STORE)
                 {
                     std::cout
                         << " -> "
