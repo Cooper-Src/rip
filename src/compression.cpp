@@ -250,6 +250,8 @@ namespace rip::compression
                 input.size(),
                 -1);
 
+            std::uint16_t last_match_distance = 0;
+
             auto insert_position =
                 [&](std::size_t position)
             {
@@ -407,7 +409,6 @@ namespace rip::compression
                 1);
 
             std::size_t position = 0;
-            std::uint16_t last_match_distance = 0;
 
             while (position <
                    input.size())
