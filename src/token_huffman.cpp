@@ -2516,7 +2516,7 @@ bool huffman_encode_tokens_v6(
             distance_frequencies,
             distance_lengths))
     {
-        set_error(error, "Unable to build RIPC v5 Huffman trees.");
+        set_error(error, "Unable to build RIPC v6 Huffman trees.");
         return false;
     }
 
@@ -2524,7 +2524,7 @@ bool huffman_encode_tokens_v6(
     {
         if (length > 15)
         {
-            set_error(error, "RTH1 v5 requires Huffman code lengths <= 15.");
+            set_error(error, "RTH1 v6 requires Huffman code lengths <= 15.");
             return false;
         }
     }
@@ -2533,7 +2533,7 @@ bool huffman_encode_tokens_v6(
     {
         if (length > 15)
         {
-            set_error(error, "RTH1 v5 length tree is too deep.");
+            set_error(error, "RTH1 v6 length tree is too deep.");
             return false;
         }
     }
@@ -2542,7 +2542,7 @@ bool huffman_encode_tokens_v6(
     {
         if (length > 15)
         {
-            set_error(error, "RTH1 v5 distance tree is too deep.");
+            set_error(error, "RTH1 v6 distance tree is too deep.");
             return false;
         }
     }
@@ -2561,7 +2561,7 @@ bool huffman_encode_tokens_v6(
             distance_lengths,
             distance_codes))
     {
-        set_error(error, "Unable to build RIPC v5 Huffman codes.");
+        set_error(error, "Unable to build RIPC v6 Huffman codes.");
         return false;
     }
 
@@ -2622,14 +2622,6 @@ bool huffman_encode_tokens_v6(
             {
                 writer.write(
                     main_codes[256]);
-
-                writer.write(
-                    distance_codes[
-                        distance_symbol]);
-
-                writer.write_bits(
-                    distance_extra,
-                    distance_extra_bits);
             }
 
             writer.write(
@@ -2639,6 +2631,17 @@ bool huffman_encode_tokens_v6(
             writer.write_bits(
                 length_extra,
                 length_extra_bits);
+
+            if (recent_index >= recent_count)
+            {
+                writer.write(
+                    distance_codes[
+                        distance_symbol]);
+
+                writer.write_bits(
+                    distance_extra,
+                    distance_extra_bits);
+            }
 
             touch_distance(token.distance);
             continue;
