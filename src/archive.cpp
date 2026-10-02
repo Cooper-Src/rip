@@ -915,6 +915,110 @@ if (entry.compression == COMPRESSION_STORE &&
                 total_files,
                 processed_files);
 
+            /*
+             * Solid RIPC is considered only when there are multiple
+             * files. Compare the complete archive data payloads,
+             * including the 16-byte solid-header extension.
+             */
+            bool solid_ripc = false;
+            std::vector<std::byte> solid_data;
+
+            if (files.size() > 1)
+            {
+                std::uint64_t independent_size = 0;
+
+                for (const auto &file : files)
+                {
+                    if (file.data.size() >
+                        std::numeric_limits<std::uint64_t>::max() -
+                            independent_size)
+                    {
+                        throw std::runtime_error(
+                            "Archive is too large for solid RIPC.");
+                    }
+
+                    independent_size +=
+                        static_cast<std::uint64_t>(
+                            file.data.size());
+                }
+
+                std::vector<std::byte> solid_input;
+
+                std::uint64_t original_total = 0;
+
+                for (const auto &file : files)
+                {
+                    if (file.original_size >
+                        std::numeric_limits<std::uint64_t>::max() -
+                            original_total)
+                    {
+                        throw std::runtime_error(
+                            "Archive is too large for solid RIPC.");
+                    }
+
+                    original_total +=
+                        file.original_size;
+                }
+
+                if (original_total <=
+                    std::numeric_limits<std::size_t>::max())
+                {
+                    solid_input.reserve(
+                        static_cast<std::size_t>(
+                            original_total));
+                }
+
+                for (const auto &file : files)
+                {
+                    const auto original =
+                        read_file(file.source);
+
+                    if (original.size() !=
+                        static_cast<std::size_t>(
+                            file.original_size))
+                    {
+                        throw std::runtime_error(
+                            "Source file changed while creating archive: " +
+                            file.source.string());
+                    }
+
+                    solid_input.insert(
+                        solid_input.end(),
+                        original.begin(),
+                        original.end());
+                }
+
+                std::string solid_error;
+
+                if (rip::compression::compress(
+                        solid_input,
+                        solid_data,
+                        &solid_error))
+                {
+                    const std::uint64_t solid_total =
+                        static_cast<std::uint64_t>(
+                            solid_data.size()) +
+                        SOLID_RIPC_HEADER_SIZE -
+                        ARCHIVE_HEADER_SIZE;
+
+                    if (solid_total < independent_size)
+                    {
+                        solid_ripc = true;
+
+                        for (auto &file : files)
+                        {
+                            file.compression =
+                                COMPRESSION_RIPC;
+                            file.data.clear();
+                        }
+                    }
+                    else
+                    {
+                        solid_data.clear();
+                    }
+                }
+            }
+
             std::ofstream archive(
                 output,
                 std::ios::binary |
@@ -937,10 +1041,14 @@ if (entry.compression == COMPRESSION_STORE &&
 
             header.header_size =
                 static_cast<std::uint16_t>(
-                    ARCHIVE_HEADER_SIZE);
+                    solid_ripc
+                        ? SOLID_RIPC_HEADER_SIZE
+                        : ARCHIVE_HEADER_SIZE);
 
             header.flags =
-                ARCHIVE_FLAG_NONE;
+                solid_ripc
+                    ? ARCHIVE_FLAG_SOLID_RIPC
+                    : ARCHIVE_FLAG_NONE;
 
             header.entry_count =
                 files.size();
@@ -948,48 +1056,87 @@ if (entry.compression == COMPRESSION_STORE &&
             header.index_offset = 0;
             header.index_size = 0;
 
+            if (solid_ripc)
+            {
+                header.solid_data_offset =
+                    SOLID_RIPC_HEADER_SIZE;
+
+                header.solid_compressed_size =
+                    static_cast<std::uint64_t>(
+                        solid_data.size());
+            }
+
             write_header(
                 archive,
                 header);
 
-            for (auto &file : files)
+            if (solid_ripc)
             {
-                const std::streampos position =
-                    archive.tellp();
-
-                if (position < 0)
-                {
-                    throw std::runtime_error(
-                        "Unable to determine file data offset.");
-                }
-
-                file.data_offset =
-                    static_cast<std::uint64_t>(
-                        position);
-
-                if (!file.data.empty())
+                if (!solid_data.empty())
                 {
                     archive.write(
                         reinterpret_cast<const char *>(
-                            file.data.data()),
+                            solid_data.data()),
                         static_cast<std::streamsize>(
-                            file.data.size()));
+                            solid_data.size()));
                 }
 
-                if (progress)
+                for (auto &file : files)
                 {
-                    progress(
-                        processed_files,
-                        total_files,
-                        file.source,
-                        ArchiveProgressStage::Writing,
-                        file.compression);
-                }
+                    file.data_offset = 0;
 
-                if (!archive)
+                    if (progress)
+                    {
+                        progress(
+                            processed_files,
+                            total_files,
+                            file.source,
+                            ArchiveProgressStage::Writing,
+                            file.compression);
+                    }
+                }
+            }
+            else
+            {
+                for (auto &file : files)
                 {
-                    throw std::runtime_error(
-                        "Failed writing file data.");
+                    const std::streampos position =
+                        archive.tellp();
+
+                    if (position < 0)
+                    {
+                        throw std::runtime_error(
+                            "Unable to determine file data offset.");
+                    }
+
+                    file.data_offset =
+                        static_cast<std::uint64_t>(
+                            position);
+
+                    if (!file.data.empty())
+                    {
+                        archive.write(
+                            reinterpret_cast<const char *>(
+                                file.data.data()),
+                            static_cast<std::streamsize>(
+                                file.data.size()));
+                    }
+
+                    if (progress)
+                    {
+                        progress(
+                            processed_files,
+                            total_files,
+                            file.source,
+                            ArchiveProgressStage::Writing,
+                            file.compression);
+                    }
+
+                    if (!archive)
+                    {
+                        throw std::runtime_error(
+                            "Failed writing file data.");
+                    }
                 }
             }
 
@@ -1011,14 +1158,18 @@ if (entry.compression == COMPRESSION_STORE &&
                 FileEntry entry{};
 
                 entry.data_offset =
-                    file.data_offset;
+                    solid_ripc
+                        ? 0
+                        : file.data_offset;
 
                 entry.original_size =
                     file.original_size;
 
                 entry.compressed_size =
-                    static_cast<std::uint64_t>(
-                        file.data.size());
+                    solid_ripc
+                        ? 0
+                        : static_cast<std::uint64_t>(
+                            file.data.size());
 
                 entry.crc32 =
                     file.checksum;
@@ -1183,6 +1334,16 @@ if (entry.compression == COMPRESSION_STORE &&
 
             details.file_size =
                 info.file_size;
+
+            details.flags =
+                info.header.flags;
+
+            details.solid_ripc =
+                (info.header.flags &
+                 ARCHIVE_FLAG_SOLID_RIPC) != 0;
+
+            details.solid_compressed_size =
+                info.header.solid_compressed_size;
 
             details.entries.reserve(
                 entries.size());
