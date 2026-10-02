@@ -1711,26 +1711,51 @@ namespace rip::compression
                 raw,
                 huffman_payload);
 
-        // New v0.6 token-aware Huffman path.
-        std::vector<Token>
-            tokens;
+        /*
+         * Token-Huffman construction is substantially more
+         * expensive than the byte-Huffman path. If the LZ
+         * stream is already materially larger than the input,
+         * it is overwhelmingly dominated by literals/control
+         * bytes and a stored block is the useful fallback.
+         *
+         * Keep a small-input allowance so short files still
+         * get the best adaptive choice.
+         */
+        const std::size_t token_huffman_slack =
+            std::max<std::size_t>(
+                4096,
+                input.size() / 16);
 
-        if (!decode_tokens(
-                raw,
-                tokens,
-                error))
-        {
-            return false;
-        }
+        const bool try_token_huffman =
+            input.size() <= 8192 ||
+            raw.size() <=
+                input.size() +
+                token_huffman_slack;
 
         std::vector<std::byte>
             token_huffman_payload;
 
-        const bool token_huffman_valid =
-            huffman_encode_tokens(
-                tokens,
-                token_huffman_payload,
-                error);
+        bool token_huffman_valid = false;
+
+        if (try_token_huffman)
+        {
+            std::vector<Token>
+                tokens;
+
+            if (!decode_tokens(
+                    raw,
+                    tokens,
+                    error))
+            {
+                return false;
+            }
+
+            token_huffman_valid =
+                huffman_encode_tokens(
+                    tokens,
+                    token_huffman_payload,
+                    error);
+        }
 
         std::uint8_t flags = 0;
 
