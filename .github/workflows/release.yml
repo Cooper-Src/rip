@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  windows:
     name: Build Windows ${{ matrix.arch }}
     strategy:
       fail-fast: false
@@ -66,10 +66,49 @@ jobs:
           path: build/rip-*-windows-*.zip
           if-no-files-found: error
 
+  linux:
+    name: Build Linux
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential git
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run tests
+        shell: bash
+        run: |
+          set -e
+          ./build/rip-token-codec-test
+          ./build/rip-token-huffman-test
+          ./build/rip-compression-test
+
+      - name: Package
+        run: cmake --build build --target package
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: rip-linux
+          path: build/rip-*-linux-*.tar.gz
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release
-    needs: build
-    runs-on: windows-2025
+    needs:
+      - windows
+      - linux
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Download packages
@@ -82,3 +121,4 @@ jobs:
         with:
           generate_release_notes: true
           files: release/**/*.zip
+            release/**/*.tar.gz
