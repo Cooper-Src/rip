@@ -15,6 +15,7 @@
 #include <QWebEnginePage>
 #include <QWebEngineProfile>
 #include <QWebEngineScript>
+#include <QWebEngineScriptCollection>
 #include <QWebEngineUrlScheme>
 #include <QWebEngineUrlSchemeHandler>
 #include <QWebEngineUrlRequestJob>
@@ -169,6 +170,21 @@ namespace
     fs::path g_selected_path;
 
     std::wstring g_requested_preset = L"strong";
+
+    struct DirectoryEntry
+    {
+        std::wstring name;
+        std::wstring path;
+
+        bool is_directory{};
+
+        std::uint64_t size{};
+
+        std::wstring modified;
+        std::wstring created;
+
+        std::wstring icon;
+    };
 
     fs::path path_from_qstring(
         const QString &path)
@@ -795,6 +811,44 @@ namespace
             path_from_qstring(directory);
 
         return true;
+    }
+
+    fs::path get_active_archive()
+    {
+        if (!g_current_archive.empty())
+        {
+            return g_current_archive;
+        }
+
+        if (g_selected_path.empty())
+        {
+            return {};
+        }
+
+        QString extension =
+            qstring_from_path(
+                g_selected_path
+            ).section(
+                QLatin1Char('.'),
+                -1,
+                -1
+            ).toLower();
+
+        if (extension != QStringLiteral("rip"))
+        {
+            return {};
+        }
+
+        std::error_code error;
+
+        if (!fs::is_regular_file(
+                g_selected_path,
+                error))
+        {
+            return {};
+        }
+
+        return g_selected_path;
     }
 
     // -----------------------------------------------------------------------------
