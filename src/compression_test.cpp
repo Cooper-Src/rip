@@ -44,21 +44,6 @@ bool test_data(
             << error
             << '\n';
 
-        if (compressed.size() >= 6)
-        {
-            std::cerr
-                << name
-                << ": RIPC flags=0x"
-                << std::hex
-                << static_cast<unsigned>(
-                    static_cast<std::uint8_t>(
-                        compressed[5]))
-                << std::dec
-                << ", stream size="
-                << compressed.size()
-                << '\n';
-        }
-
         return false;
     }
 
