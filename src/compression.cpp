@@ -1734,9 +1734,9 @@ namespace rip::compression
 
         std::uint8_t flags = 0;
 
-        const std::vector<std::byte> *
+        std::span<const std::byte>
             selected_payload =
-                &raw;
+                raw;
 
         /*
          * RIPC can now choose a true stored block.
@@ -1752,7 +1752,7 @@ namespace rip::compression
                 FLAG_STORED;
 
             selected_payload =
-                &input;
+                input;
         }
 
         if (huffman_valid &&
@@ -1763,7 +1763,7 @@ namespace rip::compression
                 FLAG_HUFFMAN;
 
             selected_payload =
-                &huffman_payload;
+                huffman_payload;
         }
 
         if (token_huffman_valid &&
@@ -1774,7 +1774,7 @@ namespace rip::compression
                 FLAG_TOKEN_HUFFMAN;
 
             selected_payload =
-                &token_huffman_payload;
+                token_huffman_payload;
         }
 
         output.reserve(
