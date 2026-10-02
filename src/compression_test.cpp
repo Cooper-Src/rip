@@ -72,7 +72,7 @@ bool test_data(
 int main()
 {
     std::cout
-        << "RIPC v0.8 compression test\n"
+        << "RIPC v10 compression test\n"
         << "==========================\n\n";
 
     std::string text =
@@ -138,6 +138,41 @@ int main()
             "Random"))
     {
         return 1;
+    }
+
+    /*
+     * Incompressible input should fall back to the
+     * stored representation rather than expanding
+     * through the LZ token control bytes.
+     */
+    {
+        std::vector<std::byte> compressed;
+        std::string error;
+
+        if (!rip::compression::compress(
+                random_data,
+                compressed,
+                &error))
+        {
+            std::cerr
+                << "Random stored-block compression failed: "
+                << error
+                << '\n';
+
+            return 1;
+        }
+
+        constexpr std::size_t RIPC_HEADER_SIZE = 16;
+
+        if (compressed.size() >
+            random_data.size() +
+                RIPC_HEADER_SIZE)
+        {
+            std::cerr
+                << "Random data expanded beyond the stored-block limit\n";
+
+            return 1;
+        }
     }
 
     std::vector<std::byte> long_run(
@@ -216,7 +251,7 @@ for (const auto level : levels)
 }
 
     std::cout
-        << "\nAll RIPC v0.9 tests passed.\n";
+        << "\nAll RIPC v10 tests passed.\n";
 
     return 0;
 }
