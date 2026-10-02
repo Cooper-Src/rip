@@ -403,7 +403,7 @@ int main(
     std::cout
         << "RIP Compression Benchmark\n"
         << "=========================\n"
-        << "RIPC v0.9 vs DEFLATE\n";
+        << "RIPC v10 vs DEFLATE\n";
 
     run_case(
         "Synthetic: repetitive text",
@@ -420,16 +420,66 @@ int main(
     fs::path executable_path =
         fs::absolute(argv[0]);
 
-    fs::path project_root =
-        executable_path
-            .parent_path()
-            .parent_path()
-            .parent_path();
+    /*
+     * Prefer the current working directory when it is the
+     * project root (the normal CMake/CI invocation). Otherwise
+     * walk upward from the executable location so build-tree
+     * invocations still find the repository.
+     */
+    fs::path project_root;
+
+    const fs::path current_directory =
+        fs::current_path();
+
+    if (fs::exists(
+            current_directory /
+            "CMakeLists.txt"))
+    {
+        project_root =
+            current_directory;
+    }
+    else
+    {
+        fs::path candidate =
+            executable_path.parent_path();
+
+        for (unsigned int i = 0;
+             i < 6 && !candidate.empty();
+             ++i)
+        {
+            if (fs::exists(
+                    candidate /
+                    "CMakeLists.txt"))
+            {
+                project_root =
+                    candidate;
+
+                break;
+            }
+
+            const fs::path parent =
+                candidate.parent_path();
+
+            if (parent == candidate)
+            {
+                break;
+            }
+
+            candidate =
+                parent;
+        }
+    }
 
     std::cout
         << '\n'
         << "Actual RIP project files\n"
         << "========================\n";
+
+    if (project_root.empty())
+    {
+        std::cout
+            << "Project root not found; skipping repository files.\n";
+    }
 
     const std::vector<ProjectFile> project_files = {
         {"CMakeLists.txt"},
@@ -452,6 +502,11 @@ int main(
     for (const auto& project_file :
          project_files)
     {
+        if (project_root.empty())
+        {
+            break;
+        }
+
         const fs::path path =
             project_root /
             project_file.relative_path;
