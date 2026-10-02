@@ -70,6 +70,9 @@ namespace rip::compression
         constexpr std::uint8_t FLAG_TOKEN_HUFFMAN =
             0x02;
 
+        constexpr std::uint8_t FLAG_STORED =
+            0x04;
+
         using Bytes =
             std::vector<std::byte>;
 
@@ -1729,57 +1732,47 @@ namespace rip::compression
                 token_huffman_payload,
                 error);
 
-        const bool use_byte_huffman =
-            huffman_valid &&
-            huffman_payload.size() <
-                raw.size();
-
-        const bool use_token_huffman =
-            token_huffman_valid &&
-            token_huffman_payload.size() <
-                raw.size();
-
         std::uint8_t flags = 0;
-
-        if (use_byte_huffman &&
-            use_token_huffman)
-        {
-            if (token_huffman_payload.size() <
-                huffman_payload.size())
-            {
-                flags =
-                    FLAG_TOKEN_HUFFMAN;
-            }
-            else
-            {
-                flags =
-                    FLAG_HUFFMAN;
-            }
-        }
-        else if (use_token_huffman)
-        {
-            flags =
-                FLAG_TOKEN_HUFFMAN;
-        }
-        else if (use_byte_huffman)
-        {
-            flags =
-                FLAG_HUFFMAN;
-        }
 
         const std::vector<std::byte> *
             selected_payload =
                 &raw;
 
-        if (flags ==
-            FLAG_HUFFMAN)
+        /*
+         * RIPC can now choose a true stored block.
+         * This is important for incompressible data:
+         * the LZ token stream carries control-byte
+         * overhead, while a stored block preserves the
+         * original bytes exactly.
+         */
+        if (input.size() <
+            selected_payload->size())
         {
+            flags =
+                FLAG_STORED;
+
+            selected_payload =
+                &input;
+        }
+
+        if (huffman_valid &&
+            huffman_payload.size() <
+                selected_payload->size())
+        {
+            flags =
+                FLAG_HUFFMAN;
+
             selected_payload =
                 &huffman_payload;
         }
-        else if (flags ==
-                 FLAG_TOKEN_HUFFMAN)
+
+        if (token_huffman_valid &&
+            token_huffman_payload.size() <
+                selected_payload->size())
         {
+            flags =
+                FLAG_TOKEN_HUFFMAN;
+
             selected_payload =
                 &token_huffman_payload;
         }
@@ -1881,7 +1874,8 @@ namespace rip::compression
 
         const std::uint8_t supported_flags =
             FLAG_HUFFMAN |
-            FLAG_TOKEN_HUFFMAN;
+            FLAG_TOKEN_HUFFMAN |
+            FLAG_STORED;
 
         if ((flags &
              static_cast<std::uint8_t>(
@@ -1894,10 +1888,12 @@ namespace rip::compression
             return false;
         }
 
-        if ((flags &
-             FLAG_HUFFMAN) != 0 &&
-            (flags &
-             FLAG_TOKEN_HUFFMAN) != 0)
+        const unsigned int compression_flags =
+            ((flags & FLAG_HUFFMAN) != 0 ? 1u : 0u) +
+            ((flags & FLAG_TOKEN_HUFFMAN) != 0 ? 1u : 0u) +
+            ((flags & FLAG_STORED) != 0 ? 1u : 0u);
+
+        if (compression_flags > 1)
         {
             set_error(
                 error,
@@ -1917,6 +1913,27 @@ namespace rip::compression
 
         const auto payload =
             input.subspan(position);
+
+        if ((flags &
+             FLAG_STORED) != 0)
+        {
+            if (payload.size() !=
+                static_cast<std::size_t>(
+                    original_size))
+            {
+                set_error(
+                    error,
+                    "RIPC stored block size mismatch.");
+
+                return false;
+            }
+
+            output.assign(
+                payload.begin(),
+                payload.end());
+
+            return true;
+        }
 
         // v0.6 token-aware Huffman.
         if ((flags &
