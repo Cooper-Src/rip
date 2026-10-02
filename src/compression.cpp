@@ -1757,7 +1757,7 @@ namespace rip::compression
 
         if (huffman_valid &&
             huffman_payload.size() <
-                selected_payload->size())
+                selected_payload.size())
         {
             flags =
                 FLAG_HUFFMAN;
@@ -1768,7 +1768,7 @@ namespace rip::compression
 
         if (token_huffman_valid &&
             token_huffman_payload.size() <
-                selected_payload->size())
+                selected_payload.size())
         {
             flags =
                 FLAG_TOKEN_HUFFMAN;
@@ -1779,7 +1779,7 @@ namespace rip::compression
 
         output.reserve(
             16 +
-            selected_payload->size());
+            selected_payload.size());
 
         output.insert(
             output.end(),
@@ -1809,8 +1809,8 @@ namespace rip::compression
 
         output.insert(
             output.end(),
-            selected_payload->begin(),
-            selected_payload->end());
+            selected_payload.begin(),
+            selected_payload.end());
 
         return true;
     }
