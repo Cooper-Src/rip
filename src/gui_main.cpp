@@ -768,6 +768,14 @@ namespace
             L",\"fileSize\":" +
             std::to_wstring(
                 details.file_size) +
+            L",\"solidRipc\":" +
+            std::wstring(
+                details.solid_ripc
+                    ? L"true"
+                    : L"false") +
+            L",\"solidCompressedSize\":" +
+            std::to_wstring(
+                details.solid_compressed_size) +
             L",\"entries\":[";
 
         for (std::size_t index = 0;
@@ -1265,7 +1273,10 @@ namespace
         }
 
         std::uint64_t original_total = 0;
-        std::uint64_t compressed_total = 0;
+        std::uint64_t compressed_total =
+            details.solid_ripc
+                ? details.solid_compressed_size
+                : 0;
 
         std::uint64_t deflate_count = 0;
         std::uint64_t stored_count = 0;
@@ -1277,8 +1288,11 @@ namespace
             original_total +=
                 entry.original_size;
 
-            compressed_total +=
-                entry.compressed_size;
+            if (!details.solid_ripc)
+            {
+                compressed_total +=
+                    entry.compressed_size;
+            }
 
             if (entry.compression ==
                 rip::COMPRESSION_DEFLATE)
@@ -1324,6 +1338,9 @@ namespace
             << L"Packed data: "
             << compressed_total
             << L" bytes\n"
+            << L"\n"
+            << L"Solid RIPC: "
+            << (details.solid_ripc ? L"Yes" : L"No")
             << L"\n"
             << L"DEFLATE: "
             << deflate_count
