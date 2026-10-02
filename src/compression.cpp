@@ -163,14 +163,14 @@ namespace rip::compression
             return value;
         }
 
-        std::uint32_t hash4(
+        std::uint32_t hash3(
             const std::byte *data)
         {
             std::uint32_t hash =
                 2166136261u;
 
             for (unsigned int i = 0;
-                 i < 4;
+                 i < 3;
                  ++i)
             {
                 hash ^=
@@ -258,14 +258,14 @@ namespace rip::compression
             auto insert_position =
                 [&](std::size_t position)
             {
-                if (position + 3 >=
+                if (position + 2 >=
                     input.size())
                 {
                     return;
                 }
 
                 const std::uint32_t hash =
-                    hash4(
+                    hash3(
                         input.data() +
                         position);
 
@@ -283,7 +283,7 @@ namespace rip::compression
                 std::size_t best_length = 0;
                 std::size_t best_distance = 0;
 
-                if (position + 3 >=
+                if (position + 2 >=
                     input.size())
                 {
                     return std::pair{
@@ -292,7 +292,7 @@ namespace rip::compression
                 }
 
                 const std::uint32_t hash =
-                    hash4(
+                    hash3(
                         input.data() +
                         position);
 
@@ -332,9 +332,7 @@ namespace rip::compression
                         input[candidate_position + 1] !=
                             input[position + 1] ||
                         input[candidate_position + 2] !=
-                            input[position + 2] ||
-                        input[candidate_position + 3] !=
-                            input[position + 3])
+                            input[position + 2])
                     {
                         candidate =
                             previous[candidate_position];
@@ -349,7 +347,7 @@ namespace rip::compression
                             input.size() -
                                 position);
 
-                    std::size_t length = 4;
+                    std::size_t length = 3;
 
                     while (
                         length < maximum &&
