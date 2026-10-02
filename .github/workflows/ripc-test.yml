@@ -1,0 +1,51 @@
+name: RIPC compression tests
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "include/rip/compression.hpp"
+      - "include/rip/token_codec.hpp"
+      - "include/rip/token_huffman.hpp"
+      - "src/compression.cpp"
+      - "src/compression_test.cpp"
+      - "src/compression_bench.cpp"
+      - "src/token_codec.cpp"
+      - "src/token_huffman.cpp"
+      - ".github/workflows/ripc-test.yml"
+
+jobs:
+  compression:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build RIPC tests and benchmark
+        run: |
+          c++ --version
+          c++ -std=c++23 -O2 -Wall -Wextra -Wpedantic \
+            -Iinclude \
+            src/compression_test.cpp \
+            src/compression.cpp \
+            src/token_codec.cpp \
+            src/token_huffman.cpp \
+            -lz \
+            -o rip-compression-test
+
+          c++ -std=c++23 -O2 -Wall -Wextra -Wpedantic \
+            -Iinclude \
+            src/compression_bench.cpp \
+            src/compression.cpp \
+            src/token_codec.cpp \
+            src/token_huffman.cpp \
+            -lz \
+            -o rip-compression-bench
+
+      - name: Run round-trip tests
+        run: ./rip-compression-test
+
+      - name: Run benchmark
+        run: ./rip-compression-bench
