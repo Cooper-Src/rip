@@ -27,13 +27,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure
-        run: >
-          cmake
-          -S .
-          -B build
-          -G "Visual Studio 18 2026"
-          -A ${{ matrix.arch }}
-          -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G "Visual Studio 18 2026" -A ${{ matrix.arch }} -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -67,8 +61,17 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Build Linux
-    runs-on: ubuntu-24.04
+    name: Build Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout
@@ -99,7 +102,7 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: rip-linux
+          name: rip-linux-${{ matrix.arch }}
           path: build/rip-*-linux-*.tar.gz
           if-no-files-found: error
 
@@ -120,5 +123,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: release/**/*.zip
+          files: |
+            release/**/*.zip
             release/**/*.tar.gz
