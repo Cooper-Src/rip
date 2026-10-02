@@ -41,7 +41,7 @@ namespace rip::compression
          * generates an unrepresentable length symbol.
          */
         constexpr std::size_t MAX_MATCH_LENGTH =
-            65'793;
+            65'538;
 
         constexpr std::size_t MIN_MATCH_LENGTH =
             3;
