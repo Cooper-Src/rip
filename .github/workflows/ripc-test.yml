@@ -13,6 +13,10 @@ on:
       - "src/compression_bench.cpp"
       - "src/token_codec.cpp"
       - "src/token_huffman.cpp"
+      - "src/archive.cpp"
+      - "src/main.cpp"
+      - "include/rip/archive.hpp"
+      - "include/rip/format.hpp"
       - ".github/workflows/ripc-test.yml"
 
 jobs:
@@ -49,3 +53,33 @@ jobs:
 
       - name: Run benchmark
         run: ./rip-compression-bench
+
+      - name: Build archive CLI
+        run: |
+          c++ -std=c++23 -O2 -Wall -Wextra -Wpedantic             -Iinclude             src/main.cpp             src/archive.cpp             src/crc32.cpp             src/compression.cpp             src/token_codec.cpp             src/token_huffman.cpp             -lz             -o rip
+
+      - name: Test solid RIPC archive round trip
+        run: |
+          set -eux
+          rm -rf archive-solid-test archive-solid-out solid-test.rip
+          mkdir -p archive-solid-test/one archive-solid-test/two
+
+          printf '%s\n' \
+            'shared source text repeated across archive files' \
+            'shared source text repeated across archive files' \
+            'shared source text repeated across archive files' \
+            > archive-solid-test/one/first.txt
+
+          printf '%s\n' \
+            'shared source text repeated across archive files' \
+            'shared source text repeated across archive files' \
+            'shared source text repeated across archive files' \
+            > archive-solid-test/two/second.txt
+
+          ./rip create solid-test.rip archive-solid-test
+          ./rip list solid-test.rip
+          ./rip test solid-test.rip
+          ./rip extract solid-test.rip archive-solid-out
+
+          cmp archive-solid-test/one/first.txt archive-solid-out/one/first.txt
+          cmp archive-solid-test/two/second.txt archive-solid-out/two/second.txt
