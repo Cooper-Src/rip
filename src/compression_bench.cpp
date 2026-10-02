@@ -497,7 +497,10 @@ int main(
         {"gui/src/style.css"}
     };
 
-    Bytes combined;
+    Bytes continuous;
+
+    Result individual_ripc_total{};
+    Result individual_deflate_total{};
 
     for (const auto& project_file :
          project_files)
@@ -539,24 +542,66 @@ int main(
                 project_file.relative_path.generic_string(),
             data);
 
-        combined.insert(
-            combined.end(),
+        const Result ripc =
+            benchmark_ripc(data);
+
+        const Result deflate =
+            benchmark_deflate(data);
+
+        individual_ripc_total.original_size +=
+            ripc.original_size;
+        individual_ripc_total.compressed_size +=
+            ripc.compressed_size;
+        individual_ripc_total.milliseconds +=
+            ripc.milliseconds;
+        individual_ripc_total.success =
+            individual_ripc_total.success &&
+            ripc.success;
+
+        individual_deflate_total.original_size +=
+            deflate.original_size;
+        individual_deflate_total.compressed_size +=
+            deflate.compressed_size;
+        individual_deflate_total.milliseconds +=
+            deflate.milliseconds;
+        individual_deflate_total.success =
+            individual_deflate_total.success &&
+            deflate.success;
+
+        // A continuous stream deliberately carries no
+        // file-boundary separator. This measures the
+        // maximum benefit available from shared history.
+        continuous.insert(
+            continuous.end(),
             data.begin(),
             data.end());
-
-        // Separating files prevents a file boundary
-        // from becoming an artificial repeated sequence.
-        combined.push_back(
-            static_cast<std::byte>('\n'));
-        combined.push_back(
-            static_cast<std::byte>('\n'));
     }
 
-    if (!combined.empty())
+    if (!continuous.empty())
     {
+        std::cout
+            << "\nProject files: independent compression\n"
+            << "========================================\n"
+            << "Each file compressed separately; totals are summed.\n\n"
+            << std::left
+            << std::setw(10)
+            << "Method"
+            << std::right
+            << std::setw(18)
+            << "Compressed"
+            << "  Ratio     Savings       Time\n";
+
+        print_result(
+            "RIPC",
+            individual_ripc_total);
+
+        print_result(
+            "DEFLATE",
+            individual_deflate_total);
+
         run_case(
-            "Combined RIP source",
-            combined);
+            "Project files: continuous stream",
+            continuous);
     }
 
     std::cout
