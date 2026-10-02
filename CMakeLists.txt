@@ -485,7 +485,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     )
     set(
         CPACK_PACKAGE_FILE_NAME
-        "rip-${RIP_RELEASE_VERSION}-linux-x64"
+        "rip-${RIP_RELEASE_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}"
     )
 
     include(CPack)
