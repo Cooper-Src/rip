@@ -83,6 +83,11 @@ endif()
 add_executable(
     rip-gui
     src/gui_main.cpp
+    src/archive.cpp
+    src/crc32.cpp
+    src/compression.cpp
+    src/token_codec.cpp
+    src/token_huffman.cpp
 )
 
 if(WIN32)
