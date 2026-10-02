@@ -1667,6 +1667,11 @@ bool huffman_decode_tokens_v2(
     std::vector<Token>& tokens,
     std::string* error);
 
+bool huffman_decode_tokens_v4(
+    std::span<const std::byte> input,
+    std::vector<Token>& tokens,
+    std::string* error);
+
 bool huffman_encode_tokens_v3(
     std::span<const Token> tokens,
     std::vector<std::byte>& output,
