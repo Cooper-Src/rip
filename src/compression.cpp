@@ -247,7 +247,7 @@ namespace rip::compression
                  * lazy lookahead catches cases where a single literal
                  * or two literals unlock a substantially better match.
                  */
-                max_chain_length = 8192;
+                max_chain_length = 16'384;
                 nice_match_length = MAX_MATCH_LENGTH;
                 lazy_lookahead = 4;
             }
@@ -1849,6 +1849,62 @@ namespace rip::compression
         CompressionLevel level)
     {
         output.clear();
+
+        /*
+         * Size-first automatic mode. Compress with every supported search
+         * profile and compare the final RIPC streams, including all Huffman
+         * tables and headers. The winner is therefore no larger than any
+         * individual profile's result. Explicit levels still run only once.
+         */
+        if (level == CompressionLevel::Auto)
+        {
+            constexpr std::array<CompressionLevel, 3> profiles =
+            {
+                CompressionLevel::Fast,
+                CompressionLevel::Balanced,
+                CompressionLevel::Maximum
+            };
+
+            std::vector<std::byte> best_output;
+            bool have_best = false;
+
+            for (const CompressionLevel profile : profiles)
+            {
+                std::vector<std::byte> candidate;
+                std::string candidate_error;
+
+                if (!compress(
+                        input,
+                        candidate,
+                        &candidate_error,
+                        profile))
+                {
+                    if (error)
+                    {
+                        *error = candidate_error;
+                    }
+
+                    output.clear();
+                    return false;
+                }
+
+                if (!have_best ||
+                    candidate.size() < best_output.size())
+                {
+                    best_output = std::move(candidate);
+                    have_best = true;
+                }
+            }
+
+            output = std::move(best_output);
+
+            if (error)
+            {
+                error->clear();
+            }
+
+            return true;
+        }
 
         const auto raw =
             lz_compress(

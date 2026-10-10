@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <string>
 #include <vector>
@@ -62,6 +63,104 @@ bool test_data(
         << input.size()
         << " -> "
         << compressed.size()
+        << " bytes)\n";
+
+    return true;
+}
+
+bool test_auto_selects_smallest(
+    const std::vector<std::byte>& input,
+    const char* name)
+{
+    constexpr std::array<
+        rip::compression::CompressionLevel,
+        3>
+        levels =
+    {
+        rip::compression::CompressionLevel::Fast,
+        rip::compression::CompressionLevel::Balanced,
+        rip::compression::CompressionLevel::Maximum
+    };
+
+    std::size_t smallest_size =
+        std::numeric_limits<std::size_t>::max();
+
+    for (const auto level : levels)
+    {
+        std::vector<std::byte> candidate;
+        std::string error;
+
+        if (!rip::compression::compress(
+                input,
+                candidate,
+                &error,
+                level))
+        {
+            std::cerr
+                << name
+                << ": profile compression failed: "
+                << error
+                << '\n';
+
+            return false;
+        }
+
+        if (candidate.size() < smallest_size)
+        {
+            smallest_size = candidate.size();
+        }
+    }
+
+    std::vector<std::byte> automatic;
+    std::vector<std::byte> restored;
+    std::string error;
+
+    if (!rip::compression::compress(
+            input,
+            automatic,
+            &error))
+    {
+        std::cerr
+            << name
+            << ": automatic compression failed: "
+            << error
+            << '\n';
+
+        return false;
+    }
+
+    if (automatic.size() != smallest_size)
+    {
+        std::cerr
+            << name
+            << ": auto mode did not select the smallest profile result ("
+            << automatic.size()
+            << " vs "
+            << smallest_size
+            << " bytes)\n";
+
+        return false;
+    }
+
+    if (!rip::compression::decompress(
+            automatic,
+            restored,
+            &error) ||
+        restored != input)
+    {
+        std::cerr
+            << name
+            << ": auto result failed round-trip validation: "
+            << error
+            << '\n';
+
+        return false;
+    }
+
+    std::cout
+        << name
+        << ": PASS (best of 3 profiles, "
+        << automatic.size()
         << " bytes)\n";
 
     return true;
@@ -185,6 +284,22 @@ int main()
     {
         return 1;
     }
+
+if (!test_auto_selects_smallest(
+        text_data,
+        "Auto size selection: text") ||
+    !test_auto_selects_smallest(
+        repetitive,
+        "Auto size selection: repetitive") ||
+    !test_auto_selects_smallest(
+        random_data,
+        "Auto size selection: random") ||
+    !test_auto_selects_smallest(
+        long_run,
+        "Auto size selection: long match"))
+{
+    return 1;
+}
 
 std::cout
     << "\nCompression levels\n"

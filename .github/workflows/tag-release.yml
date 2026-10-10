@@ -1,0 +1,86 @@
+name: Tag and publish release after RIPC tests
+
+on:
+  workflow_run:
+    workflows:
+      - "RIPC compression tests"
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag-release:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Validate release marker
+        id: version
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          changed_files="$(git diff-tree --no-commit-id --name-only -r "$TESTED_SHA")"
+          if ! grep -Fxq 'RELEASE_VERSION' <<< "$changed_files"; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "RELEASE_VERSION was not changed in the tested commit."
+            exit 0
+          fi
+          tag="$(tr -d '[:space:]' < RELEASE_VERSION)"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag in RELEASE_VERSION: $tag" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create version tag
+        id: tag
+        if: steps.version.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_refs="$(git ls-remote origin "refs/tags/$RELEASE_TAG" "refs/tags/$RELEASE_TAG^{}")"
+          if [[ -n "$remote_refs" ]]; then
+            tag_commit="$(awk -v ref="refs/tags/$RELEASE_TAG^{}" '$2 == ref { print $1; exit }' <<< "$remote_refs")"
+            if [[ -z "$tag_commit" ]]; then
+              tag_commit="$(awk -v ref="refs/tags/$RELEASE_TAG" '$2 == ref { print $1; exit }' <<< "$remote_refs")"
+            fi
+            if [[ "$tag_commit" != "$TESTED_SHA" ]]; then
+              echo "Tag $RELEASE_TAG already points at a different commit ($tag_commit)." >&2
+              exit 1
+            fi
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git tag -a "$RELEASE_TAG" "$TESTED_SHA" -m "RIP $RELEASE_TAG"
+            git push origin "$RELEASE_TAG"
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "dispatch=false" >> "$GITHUB_OUTPUT"
+            echo "Release $RELEASE_TAG already exists."
+          else
+            echo "dispatch=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch full platform build
+        if: steps.tag.outputs.dispatch == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run release.yml --ref main --field tag_name="$RELEASE_TAG"
