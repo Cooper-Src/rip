@@ -54,7 +54,11 @@ jobs:
           aqtsource: ${{ matrix.aqt_source }}
 
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 18 2026" -A ${{ matrix.arch }} -DCMAKE_BUILD_TYPE=Release
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
+        run: |
+          cmake -S . -B build -G "Visual Studio 18 2026" -A ${{ matrix.arch }} -DCMAKE_BUILD_TYPE=Release "-DRIP_PACKAGE_VERSION=$env:RELEASE_TAG"
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -77,13 +81,70 @@ jobs:
             }
           }
 
-      - name: Deploy Qt runtime
+      - name: Package standalone Windows build
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
+          WINDOWS_ARCH: ${{ matrix.arch }}
         run: |
-          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations "build/Release/rip-gui.exe"
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $arch = $env:WINDOWS_ARCH.ToLowerInvariant()
+          $stage = Join-Path $PWD "build/package/rip-$version-windows-$arch"
 
-      - name: Package
-        run: cmake --build build --config Release --target package
+          Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          Copy-Item "build/Release/rip.exe" $stage
+          Copy-Item "build/Release/rip-gui.exe" $stage
+          Copy-Item "build/Release/gui" $stage -Recurse
+
+          & "$env:QT_ROOT_DIR/bin/windeployqt.exe" --release --no-translations --compiler-runtime --dir "$stage" "$stage/rip-gui.exe"
+          if ($LASTEXITCODE -ne 0) {
+            throw "windeployqt failed with exit code $LASTEXITCODE"
+          }
+
+          $requiredFiles = @(
+            "rip.exe",
+            "rip-gui.exe",
+            "Qt6Core.dll",
+            "Qt6Gui.dll",
+            "Qt6Widgets.dll",
+            "Qt6WebEngineCore.dll",
+            "Qt6WebEngineWidgets.dll",
+            "QtWebEngineProcess.exe",
+            "resources/qtwebengine_resources.pak"
+          )
+
+          foreach ($file in $requiredFiles) {
+            if (!(Test-Path (Join-Path $stage $file))) {
+              throw "Required standalone runtime file is missing: $file"
+            }
+          }
+
+          $platformPlugin = @(
+            (Join-Path $stage "platforms/qwindows.dll"),
+            (Join-Path $stage "plugins/platforms/qwindows.dll")
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (!$platformPlugin) {
+            throw "The Qt Windows platform plugin (qwindows.dll) was not deployed."
+          }
+
+          @"
+          RIP $version for Windows ($arch)
+
+          Both the command-line utility (rip.exe) and GUI (rip-gui.exe) are included.
+          Qt libraries, the Windows platform plugin, and Qt WebEngine runtime files are bundled.
+          A separate Qt installation is not required.
+          "@ | Set-Content (Join-Path $stage "README-Windows.txt") -Encoding utf8
+
+          $zip = Join-Path $PWD "build/rip-$version-windows-$arch.zip"
+          Remove-Item $zip -Force -ErrorAction SilentlyContinue
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+
+          if (!(Test-Path $zip)) {
+            throw "Windows release ZIP was not created: $zip"
+          }
 
       - name: Upload package
         uses: actions/upload-artifact@v4
@@ -126,7 +187,9 @@ jobs:
             qt6-webchannel-dev
 
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRIP_PACKAGE_VERSION="$RELEASE_TAG"
 
       - name: Build
         run: cmake --build build --parallel

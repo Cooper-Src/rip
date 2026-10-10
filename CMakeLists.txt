@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(rip
-    VERSION 1.1.0
+    VERSION 1.1.1
     LANGUAGES CXX
 )
 
@@ -328,13 +328,18 @@ if(WIN32)
             gui
     )
 
-    set(
-        RIP_RELEASE_VERSION
-        "${PROJECT_VERSION}"
-    )
+    set(RIP_RELEASE_VERSION "${PROJECT_VERSION}")
 
-    if(DEFINED ENV{GITHUB_REF_NAME})
-
+    if(DEFINED RIP_PACKAGE_VERSION AND
+       NOT RIP_PACKAGE_VERSION STREQUAL "")
+        string(
+            REGEX REPLACE
+            "^v"
+            ""
+            RIP_RELEASE_VERSION
+            "${RIP_PACKAGE_VERSION}"
+        )
+    elseif(DEFINED ENV{GITHUB_REF_NAME})
         string(
             REGEX REPLACE
             "^v"
@@ -342,7 +347,6 @@ if(WIN32)
             RIP_RELEASE_VERSION
             "$ENV{GITHUB_REF_NAME}"
         )
-
     endif()
 
     set(CPACK_GENERATOR "ZIP")
@@ -356,9 +360,15 @@ if(WIN32)
         CPACK_PACKAGE_VERSION
         "${RIP_RELEASE_VERSION}"
     )
+    if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64")
+        set(RIP_WINDOWS_ARCH "arm64")
+    else()
+        set(RIP_WINDOWS_ARCH "x64")
+    endif()
+
     set(
         CPACK_PACKAGE_FILE_NAME
-        "rip-${RIP_RELEASE_VERSION}-windows-${RIP_WEBVIEW2_ARCH}"
+        "rip-${RIP_RELEASE_VERSION}-windows-${RIP_WINDOWS_ARCH}"
     )
 
     include(CPack)
@@ -379,13 +389,18 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             gui
     )
 
-    set(
-        RIP_RELEASE_VERSION
-        "${PROJECT_VERSION}"
-    )
+    set(RIP_RELEASE_VERSION "${PROJECT_VERSION}")
 
-    if(DEFINED ENV{GITHUB_REF_NAME})
-
+    if(DEFINED RIP_PACKAGE_VERSION AND
+       NOT RIP_PACKAGE_VERSION STREQUAL "")
+        string(
+            REGEX REPLACE
+            "^v"
+            ""
+            RIP_RELEASE_VERSION
+            "${RIP_PACKAGE_VERSION}"
+        )
+    elseif(DEFINED ENV{GITHUB_REF_NAME})
         string(
             REGEX REPLACE
             "^v"
@@ -393,7 +408,6 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
             RIP_RELEASE_VERSION
             "$ENV{GITHUB_REF_NAME}"
         )
-
     endif()
 
     set(CPACK_GENERATOR "TGZ")
