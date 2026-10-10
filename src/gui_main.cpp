@@ -175,12 +175,34 @@ namespace
                 << "file:"
                 << canonicalFile;
 
+            // Qt's canonical paths use forward slashes on Windows,
+            // while QDir::separator() returns a backslash there. Normalize
+            // both paths before the containment check so valid GUI assets
+            // are not rejected on Windows.
+            const QString normalizedRoot =
+                QDir::fromNativeSeparators(canonicalRoot);
+            const QString normalizedFile =
+                QDir::fromNativeSeparators(canonicalFile);
+
+            QString rootPrefix = normalizedRoot;
+            if (!rootPrefix.endsWith(QLatin1Char('/')))
+            {
+                rootPrefix += QLatin1Char('/');
+            }
+
+#ifdef _WIN32
+            constexpr Qt::CaseSensitivity pathCaseSensitivity =
+                Qt::CaseInsensitive;
+#else
+            constexpr Qt::CaseSensitivity pathCaseSensitivity =
+                Qt::CaseSensitive;
+#endif
+
             if (canonicalRoot.isEmpty() ||
                 canonicalFile.isEmpty() ||
-                ((!canonicalFile.startsWith(
-                    canonicalRoot +
-                    QDir::separator())) &&
-                 canonicalFile != canonicalRoot))
+                !normalizedFile.startsWith(
+                    rootPrefix,
+                    pathCaseSensitivity))
             {
                 qWarning().noquote()
                     << "[RIP WebEngine] rejected path:"
