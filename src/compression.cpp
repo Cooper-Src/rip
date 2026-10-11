@@ -419,11 +419,50 @@ namespace rip::compression
 
                     std::size_t length = 4;
 
+                    /*
+                     * Compare long matches a machine word at a time.
+                     * memcpy keeps the loads valid for unaligned input
+                     * pointers and lets compilers lower them efficiently.
+                     * If a word differs, inspect just that word bytewise so
+                     * the exact match length and match selection stay the
+                     * same as the original byte-at-a-time loop.
+                     */
+                    while (length + sizeof(std::uint64_t) <= maximum)
+                    {
+                        std::uint64_t current_word = 0;
+                        std::uint64_t candidate_word = 0;
+
+                        std::memcpy(
+                            &current_word,
+                            input.data() + position + length,
+                            sizeof(current_word));
+
+                        std::memcpy(
+                            &candidate_word,
+                            input.data() + candidate_position + length,
+                            sizeof(candidate_word));
+
+                        if (current_word != candidate_word)
+                        {
+                            for (std::size_t i = 0;
+                                 i < sizeof(std::uint64_t) &&
+                                 input[position + length + i] ==
+                                     input[candidate_position + length + i];
+                                 ++i)
+                            {
+                                ++length;
+                            }
+
+                            break;
+                        }
+
+                        length += sizeof(std::uint64_t);
+                    }
+
                     while (
                         length < maximum &&
                         input[position + length] ==
-                            input[candidate_position +
-                                  length])
+                            input[candidate_position + length])
                     {
                         ++length;
                     }
@@ -2149,6 +2188,9 @@ namespace rip::compression
             Bytes bytes;
             std::string error;
             bool success = false;
+            std::size_t completed_profiles = 0;
+            std::size_t best_profile_index =
+                std::numeric_limits<std::size_t>::max();
         };
 
         std::vector<EncodedChunk> chunks(chunk_count);
@@ -2157,12 +2199,23 @@ namespace rip::compression
         const std::size_t profile_count =
             level == CompressionLevel::Auto ? profiles.size() : 1;
 
+        if (chunk_count >
+            std::numeric_limits<std::size_t>::max() / profile_count)
+        {
+            set_error(error, "RIPC input requires too many parallel profile tasks.");
+            return false;
+        }
+
+        const std::size_t task_count =
+            chunk_count * profile_count;
+
         const std::uint64_t bytes_total =
             static_cast<std::uint64_t>(input.size());
 
-        std::atomic<std::size_t> next_chunk{0};
+        std::atomic<std::size_t> next_task{0};
         std::atomic<bool> cancelled{false};
         std::mutex progress_mutex;
+        std::mutex results_mutex;
 
         if (progress)
         {
@@ -2230,103 +2283,120 @@ namespace rip::compression
                 std::move(chunk_progress));
         };
 
+        /*
+         * Schedule each (chunk, profile) pair independently. Auto still
+         * evaluates every profile for every chunk and selects the smallest
+         * result, but short and uneven inputs no longer leave CPU workers
+         * idle while one chunk runs its three profiles serially.
+         */
         auto worker_function = [&]()
         {
             while (!cancelled.load(std::memory_order_relaxed))
             {
-                const std::size_t chunk_index =
-                    next_chunk.fetch_add(1, std::memory_order_relaxed);
+                const std::size_t task_index =
+                    next_task.fetch_add(1, std::memory_order_relaxed);
 
-                if (chunk_index >= chunk_count)
+                if (task_index >= task_count)
                 {
                     return;
                 }
+
+                if (cancelled.load(std::memory_order_relaxed))
+                {
+                    return;
+                }
+
+                const std::size_t chunk_index =
+                    task_index / profile_count;
+
+                const std::size_t profile_index =
+                    task_index % profile_count;
+
+                const CompressionLevel profile =
+                    level == CompressionLevel::Auto
+                        ? profiles[profile_index]
+                        : level;
 
                 EncodedChunk &result = chunks[chunk_index];
 
                 try
                 {
-                    if (level == CompressionLevel::Auto)
+                    Bytes candidate;
+                    std::string candidate_error;
+
+                    if (!run_profile(
+                            chunk_index,
+                            profile_index,
+                            profile,
+                            candidate,
+                            candidate_error))
                     {
-                        Bytes best_candidate;
-                        bool have_best = false;
-
-                        for (std::size_t profile_index = 0;
-                             profile_index < profiles.size();
-                             ++profile_index)
                         {
-                            if (cancelled.load(std::memory_order_relaxed))
-                            {
-                                break;
-                            }
+                            std::lock_guard<std::mutex> lock(results_mutex);
 
-                            Bytes candidate;
-                            std::string candidate_error;
-
-                            if (!run_profile(
-                                    chunk_index,
-                                    profile_index,
-                                    profiles[profile_index],
-                                    candidate,
-                                    candidate_error))
+                            if (result.error.empty())
                             {
                                 result.error =
                                     candidate_error.empty()
                                         ? "RIPC parallel chunk compression failed."
                                         : std::move(candidate_error);
-                                cancelled.store(true, std::memory_order_relaxed);
-                                break;
-                            }
-
-                            if (!have_best ||
-                                candidate.size() < best_candidate.size())
-                            {
-                                best_candidate = std::move(candidate);
-                                have_best = true;
                             }
                         }
 
-                        if (have_best &&
-                            !cancelled.load(std::memory_order_relaxed))
-                        {
-                            result.bytes = std::move(best_candidate);
-                            result.success = true;
-                        }
+                        cancelled.store(true, std::memory_order_relaxed);
+                        return;
                     }
-                    else
-                    {
-                        Bytes candidate;
-                        std::string candidate_error;
 
-                        if (!run_profile(
-                                chunk_index,
-                                0,
-                                level,
-                                candidate,
-                                candidate_error))
-                        {
-                            result.error =
-                                candidate_error.empty()
-                                    ? "RIPC parallel chunk compression failed."
-                                    : std::move(candidate_error);
-                            cancelled.store(true, std::memory_order_relaxed);
-                        }
-                        else
+                    {
+                        std::lock_guard<std::mutex> lock(results_mutex);
+
+                        /*
+                         * Resolve equal-sized candidates by profile order.
+                         * This preserves Auto's previous deterministic tie
+                         * breaking (Fast, then Balanced, then Maximum),
+                         * regardless of worker completion order.
+                         */
+                        if (!result.success ||
+                            candidate.size() < result.bytes.size() ||
+                            (candidate.size() == result.bytes.size() &&
+                             profile_index < result.best_profile_index))
                         {
                             result.bytes = std::move(candidate);
+                            result.best_profile_index = profile_index;
                             result.success = true;
                         }
+
+                        ++result.completed_profiles;
                     }
                 }
                 catch (const std::exception &exception)
                 {
-                    result.error = exception.what();
+                    {
+                        std::lock_guard<std::mutex> lock(results_mutex);
+
+                        if (result.error.empty())
+                        {
+                            result.error = exception.what();
+                        }
+                    }
+
                     cancelled.store(true, std::memory_order_relaxed);
+                    return;
                 }
                 catch (...)
                 {
-                    result.error = "Unknown error during RIPC parallel compression.";
+                    {
+                        std::lock_guard<std::mutex> lock(results_mutex);
+
+                        if (result.error.empty())
+                        {
+                            result.error =
+                                "Unknown error during RIPC parallel compression.";
+                        }
+                    }
+
                     cancelled.store(true, std::memory_order_relaxed);
+                    return;
                 }
             }
         };
@@ -2338,7 +2408,7 @@ namespace rip::compression
             std::max<std::size_t>(
                 1,
                 std::min(
-                    chunk_count,
+                    task_count,
                     reported_workers == 0
                         ? std::size_t{1}
                         : static_cast<std::size_t>(reported_workers)));
@@ -2377,7 +2447,8 @@ namespace rip::compression
 
         for (const EncodedChunk &chunk : chunks)
         {
-            if (!chunk.success)
+            if (!chunk.success ||
+                chunk.completed_profiles != profile_count)
             {
                 std::string failure =
                     "RIPC parallel compression did not complete.";
