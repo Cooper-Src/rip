@@ -52,6 +52,9 @@ interface ArchiveProgressMessage {
     processed: number;
     total: number;
     percent: number;
+    bytesProcessed: number;
+    bytesTotal: number;
+    bytePhase: string;
     file: string;
     stage: string;
 }
@@ -133,6 +136,27 @@ const formatSize = (
     return size
         .toLocaleString("en-US")
         .replaceAll(",", " ");
+};
+
+const formatByteCount = (
+    value: number
+): string => {
+    if (!Number.isFinite(value) || value <= 0) {
+        return "0 B";
+    }
+
+    const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+    let size = value;
+    let unit = 0;
+
+    while (size >= 1024 && unit < units.length - 1) {
+        size /= 1024;
+        unit += 1;
+    }
+
+    return `${size.toLocaleString("en-US", {
+        maximumFractionDigits: unit === 0 ? 0 : 2
+    })} ${units[unit]}`;
 };
 
 const formatSaved = (
@@ -652,6 +676,23 @@ app.innerHTML = `
 
             </div>
 
+            <div class="progress-byte-heading">
+                <span>Bytes processed in current pass</span>
+                <strong id="archive-byte-progress-phase">Waiting</strong>
+            </div>
+
+            <div class="progress-track progress-track-bytes">
+                <div
+                    id="archive-byte-progress-bar"
+                    class="progress-bar progress-byte-bar"
+                ></div>
+            </div>
+
+            <div class="progress-meta">
+                <span id="archive-byte-progress-count">0 B / 0 B</span>
+                <strong id="archive-byte-progress-percent">0%</strong>
+            </div>
+
         </div>
 
         <div class="progress-status-bar">
@@ -1019,6 +1060,26 @@ const showArchiveProgress = (): void => {
             "0%";
     }
 
+    if (archiveByteProgressBar) {
+        archiveByteProgressBar.style.width =
+            "0%";
+    }
+
+    if (archiveByteProgressPhase) {
+        archiveByteProgressPhase.textContent =
+            "Waiting";
+    }
+
+    if (archiveByteProgressCount) {
+        archiveByteProgressCount.textContent =
+            "0 B / 0 B";
+    }
+
+    if (archiveByteProgressPercent) {
+        archiveByteProgressPercent.textContent =
+            "0%";
+    }
+
     if (archiveProgressPercent) {
         archiveProgressPercent.textContent =
             "0%";
@@ -1086,6 +1147,37 @@ const updateArchiveProgress = (
             `${progress.processed} / ${progress.total} files`;
     }
 
+    const bytePercent =
+        progress.bytesTotal > 0
+            ? Math.max(
+                  0,
+                  Math.min(
+                      100,
+                      (progress.bytesProcessed / progress.bytesTotal) * 100
+                  )
+              )
+            : 0;
+
+    if (archiveByteProgressBar) {
+        archiveByteProgressBar.style.width =
+            `${bytePercent}%`;
+    }
+
+    if (archiveByteProgressPhase) {
+        archiveByteProgressPhase.textContent =
+            progress.bytePhase || progress.stage;
+    }
+
+    if (archiveByteProgressCount) {
+        archiveByteProgressCount.textContent =
+            `${formatByteCount(progress.bytesProcessed)} / ${formatByteCount(progress.bytesTotal)}`;
+    }
+
+    if (archiveByteProgressPercent) {
+        archiveByteProgressPercent.textContent =
+            `${Math.round(bytePercent)}%`;
+    }
+
     if (archiveProgressStatus) {
         archiveProgressStatus.textContent =
             progress.stage;
@@ -1134,6 +1226,26 @@ const archiveProgressPercent =
 const archiveProgressStatus =
     document.querySelector<HTMLSpanElement>(
         "#archive-progress-status"
+    );
+
+const archiveByteProgressBar =
+    document.querySelector<HTMLDivElement>(
+        "#archive-byte-progress-bar"
+    );
+
+const archiveByteProgressPhase =
+    document.querySelector<HTMLElement>(
+        "#archive-byte-progress-phase"
+    );
+
+const archiveByteProgressCount =
+    document.querySelector<HTMLSpanElement>(
+        "#archive-byte-progress-count"
+    );
+
+const archiveByteProgressPercent =
+    document.querySelector<HTMLElement>(
+        "#archive-byte-progress-percent"
     );
 
 const renderFilesystem = (

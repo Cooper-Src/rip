@@ -1082,3 +1082,31 @@ button:disabled:hover {
 
     font-size: 11px;
 }
+
+.progress-byte-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+    margin-bottom: 6px;
+    color: #666;
+    font-size: 11px;
+}
+
+.progress-byte-heading strong {
+    overflow: hidden;
+    color: #333;
+    font-weight: 600;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.progress-track-bytes {
+    height: 12px;
+}
+
+.progress-byte-bar {
+    background: linear-gradient(#8fc5a0, #4c9b66);
+}
