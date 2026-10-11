@@ -31,6 +31,7 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 - Command-line utility and Qt-based graphical archive manager.
 - Windows ARM64 and x64 builds, plus Linux ARM64 and x86-64 builds.
 - Adaptive per-file STORE, DEFLATE, and RIPC compression.
+- Parallel decompression of RIPC's independent chunks and bulk expansion of overlapping LZ matches.
 - CRC32 checksums and archive integrity testing.
 - Browse the filesystem and open/browse RIP archives in the GUI.
 - Create, extract, test, inspect, and delete archives through the GUI.
