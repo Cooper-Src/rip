@@ -403,7 +403,8 @@ int main(
     std::cout
         << "RIP Compression Benchmark\n"
         << "=========================\n"
-        << "RIPC v" << static_cast<unsigned int>(rip::compression::RIPC_VERSION)\n        << " vs DEFLATE\n";
+        << "RIPC v" << static_cast<unsigned int>(rip::compression::RIPC_VERSION)
+        << " vs DEFLATE\n";
 
     run_case(
         "Synthetic: repetitive text",
