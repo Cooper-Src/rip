@@ -160,7 +160,7 @@ cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release --parallel
 ```
 
-The selected Qt installation must match the target architecture and compiler. RIP also includes convenience scripts under `scripts/ ` for common builds.
+The selected Qt installation must match the target architecture and compiler. RIP also includes convenience scripts under `scripts/` for common builds.
 
 ### Linux
 
