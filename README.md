@@ -42,14 +42,14 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 
 Get the latest packages from the [GitHub Releases page](https://github.com/Cooper-Src/rip/releases).
 
-The current release is **v1.1.3**:
+The current release is **v1.1.4**:
 
 | Platform | Download |
 | --- | --- |
-| Windows ARM64 | [rip-1.1.3-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-windows-arm64.zip) |
-| Windows x64 | [rip-1.1.3-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-windows-x64.zip) |
-| Linux ARM64 / AArch64 | [rip-1.1.3-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-linux-aarch64.tar.gz) |
-| Linux x64 / x86-64 | [rip-1.1.3-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-linux-x86_64.tar.gz) |
+| Windows ARM64 | [rip-1.1.4-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.4/rip-1.1.4-windows-arm64.zip) |
+| Windows x64 | [rip-1.1.4-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.4/rip-1.1.4-windows-x64.zip) |
+| Linux ARM64 / AArch64 | [rip-1.1.4-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.4/rip-1.1.4-linux-aarch64.tar.gz) |
+| Linux x64 / x86-64 | [rip-1.1.4-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.4/rip-1.1.4-linux-x86_64.tar.gz) |
 
 ### Windows
 
@@ -216,7 +216,7 @@ GitHub Actions also builds the GUI frontend, runs the compression tests, and ver
 
 ## RIPC compression
 
-RIPC combines LZ-style match finding with token encoding and Huffman entropy coding. Files smaller than 2 MiB keep the single-stream layout and automatic mode tests the Fast, Balanced, and Maximum profiles. For larger inputs, RIPC v11 splits data into independent 1 MiB chunks and compresses them concurrently, using up to the number of logical CPU threads reported by the operating system (bounded by the chunk count). Auto mode still compares all three profiles per chunk; explicit profiles only run their selected search. Chunks are reassembled in source order for deterministic decoding, though independent boundaries can slightly reduce compression ratio for some inputs. This encoder update is currently on `main`; it will ship in a subsequent release.
+RIPC combines LZ-style match finding with token encoding and Huffman entropy coding. Files smaller than 2 MiB keep the single-stream layout and automatic mode tests the Fast, Balanced, and Maximum profiles. For larger inputs, RIPC v11 splits data into independent 1 MiB chunks and compresses them concurrently, using up to the number of logical CPU threads reported by the operating system (bounded by the chunk count). Auto mode still compares all three profiles per chunk; explicit profiles only run their selected search. Chunks are reassembled in source order for deterministic decoding, though independent boundaries can slightly reduce compression ratio for some inputs. The parallel chunk encoder is included in v1.1.4.
 
 RIP then compares the chosen RIPC result with DEFLATE and STORE for each file. RIPC is **not guaranteed to be smaller or faster for every input**; if another representation is smaller, RIP stores that instead. The stream format is now v11 for this parallel-chunk encoder, so older RIP binaries that do not support v11 cannot decompress newly created RIPC v11 streams. The codec is still under active development.
 
