@@ -231,7 +231,8 @@ struct Result
 };
 
 Result benchmark_ripc(
-    const Bytes& input)
+    const Bytes& input,
+    Bytes* encoded_output = nullptr)
 {
     Bytes output;
 
@@ -256,11 +257,86 @@ Result benchmark_ripc(
             end - start)
             .count();
 
+    const std::size_t compressed_size = output.size();
+
+    if (encoded_output)
+    {
+        *encoded_output = std::move(output);
+    }
+
     return {
         input.size(),
-        output.size(),
+        compressed_size,
         milliseconds,
         true};
+}
+
+struct DecodeResult
+{
+    std::size_t original_size{};
+    std::size_t compressed_size{};
+    double milliseconds{};
+    bool success{};
+};
+
+DecodeResult benchmark_ripc_decompression(
+    const Bytes& input,
+    const Bytes& compressed)
+{
+    Bytes restored;
+
+    const auto start =
+        std::chrono::steady_clock::now();
+
+    const bool decoded =
+        rip::compression::decompress(
+            compressed,
+            restored);
+
+    const auto end =
+        std::chrono::steady_clock::now();
+
+    const double milliseconds =
+        std::chrono::duration<double, std::milli>(
+            end - start)
+            .count();
+
+    const bool success =
+        decoded && restored == input;
+
+    return {
+        input.size(),
+        compressed.size(),
+        milliseconds,
+        success};
+}
+
+void print_decode_result(
+    const DecodeResult& result)
+{
+    if (!result.success || result.milliseconds <= 0.0)
+    {
+        std::cout << "RIPC decode: FAILED\n";
+        return;
+    }
+
+    const double mebibytes_per_second =
+        static_cast<double>(result.original_size) /
+        (result.milliseconds * 1024.0 * 1024.0) *
+        1000.0;
+
+    std::cout
+        << "RIPC decode: "
+        << std::fixed
+        << std::setprecision(2)
+        << result.milliseconds
+        << " ms, "
+        << mebibytes_per_second
+        << " MiB/s, verified round trip ("
+        << result.compressed_size
+        << " -> "
+        << result.original_size
+        << " bytes)\n";
 }
 
 Result benchmark_deflate(
@@ -372,8 +448,10 @@ void run_case(
         << "Compressed"
         << "  Ratio     Savings       Time\n";
 
+    Bytes ripc_stream;
+
     const Result ripc =
-        benchmark_ripc(input);
+        benchmark_ripc(input, &ripc_stream);
 
     const Result deflate =
         benchmark_deflate(input);
@@ -385,6 +463,14 @@ void run_case(
     print_result(
         "DEFLATE",
         deflate);
+
+    if (ripc.success)
+    {
+        print_decode_result(
+            benchmark_ripc_decompression(
+                input,
+                ripc_stream));
+    }
 }
 
 struct ProjectFile
