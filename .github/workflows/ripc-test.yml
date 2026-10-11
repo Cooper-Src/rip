@@ -60,7 +60,7 @@ jobs:
       - name: Build RIPC tests and benchmark
         run: |
           c++ --version
-          c++ -std=c++23 -O2 -Wall -Wextra -Wpedantic \
+          c++ -std=c++23 -O2 -pthread -Wall -Wextra -Wpedantic \
             -Iinclude \
             src/compression_test.cpp \
             src/compression.cpp \
@@ -69,7 +69,7 @@ jobs:
             -lz \
             -o rip-compression-test
 
-          c++ -std=c++23 -O2 -Wall -Wextra -Wpedantic \
+          c++ -std=c++23 -O2 -pthread -Wall -Wextra -Wpedantic \
             -Iinclude \
             src/compression_bench.cpp \
             src/compression.cpp \
@@ -86,7 +86,7 @@ jobs:
 
       - name: Build archive CLI
         run: |
-          c++ -std=c++23 -O2 -Wall -Wextra -Wpedantic             -Iinclude             src/main.cpp             src/archive.cpp             src/crc32.cpp             src/compression.cpp             src/token_codec.cpp             src/token_huffman.cpp             -lz             -o rip
+          c++ -std=c++23 -O2 -pthread -Wall -Wextra -Wpedantic             -Iinclude             src/main.cpp             src/archive.cpp             src/crc32.cpp             src/compression.cpp             src/token_codec.cpp             src/token_huffman.cpp             -lz             -o rip
 
       - name: Test solid RIPC archive round trip
         run: |
