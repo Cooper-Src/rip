@@ -444,15 +444,18 @@ namespace rip::compression
 
                         if (current_word != candidate_word)
                         {
-                            for (std::size_t i = 0;
-                                 i < sizeof(std::uint64_t) &&
-                                 input[position + length + i] ==
-                                     input[candidate_position + length + i];
-                                 ++i)
+                            const std::size_t word_offset = length;
+                            std::size_t matching_bytes = 0;
+
+                            while (
+                                matching_bytes < sizeof(std::uint64_t) &&
+                                input[position + word_offset + matching_bytes] ==
+                                    input[candidate_position + word_offset + matching_bytes])
                             {
-                                ++length;
+                                ++matching_bytes;
                             }
 
+                            length += matching_bytes;
                             break;
                         }
 
