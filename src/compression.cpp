@@ -681,6 +681,12 @@ namespace rip::compression
                 while (position <
                        input.size())
                 {
+                    if (progress && position >= next_progress)
+                    {
+                        progress(position, input.size(), phase);
+                        next_progress = position + progress_interval;
+                    }
+
                     const auto [next_match_length,
                                 unused_distance] =
                         find_match(position);
