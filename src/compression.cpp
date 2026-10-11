@@ -4,14 +4,18 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <exception>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <functional>
 #include <limits>
+#include <mutex>
 #include <queue>
 #include <span>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -73,6 +77,15 @@ namespace rip::compression
         constexpr std::uint8_t FLAG_STORED =
             0x04;
 
+        constexpr std::uint8_t FLAG_CHUNKED =
+            0x08;
+
+        constexpr std::size_t PARALLEL_CHUNK_SIZE =
+            1024 * 1024;
+
+        constexpr std::size_t PARALLEL_MIN_SIZE =
+            2 * PARALLEL_CHUNK_SIZE;
+
         using Bytes =
             std::vector<std::byte>;
 
@@ -105,6 +118,18 @@ namespace rip::compression
             output.push_back(
                 static_cast<std::byte>(
                     (value >> 8u) & 0xffu));
+        }
+
+        void write_u32(
+            Bytes &output,
+            std::uint32_t value)
+        {
+            for (unsigned int i = 0; i < 4; ++i)
+            {
+                output.push_back(
+                    static_cast<std::byte>(
+                        (value >> (i * 8u)) & 0xffu));
+            }
         }
 
         void write_u64(
@@ -142,6 +167,23 @@ namespace rip::compression
 
             return static_cast<std::uint16_t>(
                 a | (b << 8u));
+        }
+
+        std::uint32_t read_u32(
+            std::span<const std::byte> input,
+            std::size_t &position)
+        {
+            std::uint32_t value = 0;
+
+            for (unsigned int i = 0; i < 4; ++i)
+            {
+                value |=
+                    static_cast<std::uint32_t>(
+                        read_u8(input, position))
+                    << (i * 8u);
+            }
+
+            return value;
         }
 
         std::uint64_t read_u64(
@@ -192,7 +234,9 @@ namespace rip::compression
 
             std::size_t length{};
 
-            std::vector<std::byte> literals;
+            // Literal bytes already exist in the source span. Keeping an
+            // offset avoids one heap allocation per literal token.
+            std::size_t literal_offset{};
         };
 
         Bytes lz_compress(
@@ -623,8 +667,7 @@ namespace rip::compression
 
                             token.type = 0;
 
-                            token.literals.push_back(
-                                input[position]);
+                            token.literal_offset = position;
 
                             tokens.push_back(
                                 std::move(token));
@@ -723,14 +766,7 @@ namespace rip::compression
                     token.length =
                         run_length;
 
-                    token.literals.insert(
-                        token.literals.end(),
-                        input.begin() +
-                            static_cast<std::ptrdiff_t>(
-                                run_start),
-                        input.begin() +
-                            static_cast<std::ptrdiff_t>(
-                                position));
+                    token.literal_offset = run_start;
 
                     tokens.push_back(
                         std::move(token));
@@ -745,8 +781,7 @@ namespace rip::compression
 
                         token.type = 0;
 
-                        token.literals.push_back(
-                            input[run_start + i]);
+                        token.literal_offset = run_start + i;
 
                         tokens.push_back(
                             std::move(token));
@@ -789,8 +824,7 @@ namespace rip::compression
 
                     if (token.type == 0)
                     {
-                        output.push_back(
-                            token.literals.front());
+                        output.push_back(input[token.literal_offset]);
                     }
                     else if (token.type == 1 ||
                              token.type == 3)
@@ -827,15 +861,15 @@ namespace rip::compression
                     }
                     else
                     {
-                        write_u8(
-                            output,
-                            static_cast<std::uint8_t>(
-                                token.literals.size()));
+                        write_u8(output, static_cast<std::uint8_t>(token.length));
 
                         output.insert(
                             output.end(),
-                            token.literals.begin(),
-                            token.literals.end());
+                            input.begin() +
+                                static_cast<std::ptrdiff_t>(token.literal_offset),
+                            input.begin() +
+                                static_cast<std::ptrdiff_t>(
+                                    token.literal_offset + token.length));
                     }
                 }
 
@@ -1876,7 +1910,7 @@ namespace rip::compression
 
     } // namespace
 
-    bool compress(
+    static bool compress_single(
         std::span<const std::byte> input,
         std::vector<std::byte> &output,
         std::string *error,
@@ -1884,63 +1918,6 @@ namespace rip::compression
         CompressionProgressCallback progress)
     {
         output.clear();
-
-        /*
-         * Size-first automatic mode. Compress with every supported search
-         * profile and compare the final RIPC streams, including all Huffman
-         * tables and headers. The winner is therefore no larger than any
-         * individual profile's result. Explicit levels still run only once.
-         */
-        if (level == CompressionLevel::Auto)
-        {
-            constexpr std::array<CompressionLevel, 3> profiles =
-            {
-                CompressionLevel::Fast,
-                CompressionLevel::Balanced,
-                CompressionLevel::Maximum
-            };
-
-            std::vector<std::byte> best_output;
-            bool have_best = false;
-
-            for (const CompressionLevel profile : profiles)
-            {
-                std::vector<std::byte> candidate;
-                std::string candidate_error;
-
-                if (!compress(
-                        input,
-                        candidate,
-                        &candidate_error,
-                        profile,
-                        progress))
-                {
-                    if (error)
-                    {
-                        *error = candidate_error;
-                    }
-
-                    output.clear();
-                    return false;
-                }
-
-                if (!have_best ||
-                    candidate.size() < best_output.size())
-                {
-                    best_output = std::move(candidate);
-                    have_best = true;
-                }
-            }
-
-            output = std::move(best_output);
-
-            if (error)
-            {
-                error->clear();
-            }
-
-            return true;
-        }
 
         const auto raw =
             lz_compress(
@@ -2086,6 +2063,407 @@ namespace rip::compression
         return true;
     }
 
+    bool compress(
+        std::span<const std::byte> input,
+        std::vector<std::byte> &output,
+        std::string *error,
+        CompressionLevel level,
+        CompressionProgressCallback progress)
+    {
+        output.clear();
+
+        if (error)
+        {
+            error->clear();
+        }
+
+        constexpr std::array<CompressionLevel, 3> profiles =
+        {
+            CompressionLevel::Fast,
+            CompressionLevel::Balanced,
+            CompressionLevel::Maximum
+        };
+
+        // Retain the original single-stream layout for small inputs.
+        if (input.size() < PARALLEL_MIN_SIZE)
+        {
+            if (level != CompressionLevel::Auto)
+            {
+                return compress_single(
+                    input,
+                    output,
+                    error,
+                    level,
+                    std::move(progress));
+            }
+
+            Bytes best_output;
+            bool have_best = false;
+
+            for (const CompressionLevel profile : profiles)
+            {
+                Bytes candidate;
+                std::string candidate_error;
+
+                if (!compress_single(
+                        input,
+                        candidate,
+                        &candidate_error,
+                        profile,
+                        progress))
+                {
+                    const std::string message =
+                        candidate_error.empty()
+                            ? "RIPC compression profile failed."
+                            : candidate_error;
+                    set_error(error, message.c_str());
+                    output.clear();
+                    return false;
+                }
+
+                if (!have_best ||
+                    candidate.size() < best_output.size())
+                {
+                    best_output = std::move(candidate);
+                    have_best = true;
+                }
+            }
+
+            output = std::move(best_output);
+            return have_best;
+        }
+
+        const std::size_t chunk_count =
+            1 + ((input.size() - 1) / PARALLEL_CHUNK_SIZE);
+
+        if (chunk_count >
+            static_cast<std::size_t>(
+                std::numeric_limits<std::uint32_t>::max()))
+        {
+            set_error(error, "RIPC input requires too many parallel chunks.");
+            return false;
+        }
+
+        struct EncodedChunk
+        {
+            Bytes bytes;
+            std::string error;
+            bool success = false;
+        };
+
+        std::vector<EncodedChunk> chunks(chunk_count);
+        std::vector<std::uint64_t> progress_by_chunk(chunk_count, 0);
+
+        const std::size_t profile_count =
+            level == CompressionLevel::Auto ? profiles.size() : 1;
+
+        const std::uint64_t bytes_total =
+            static_cast<std::uint64_t>(input.size());
+
+        std::atomic<std::size_t> next_chunk{0};
+        std::atomic<bool> cancelled{false};
+        std::mutex progress_mutex;
+
+        if (progress)
+        {
+            progress(0, bytes_total, "RIPC parallel compression");
+        }
+
+        auto run_profile =
+            [&](std::size_t chunk_index,
+                std::size_t profile_index,
+                CompressionLevel profile,
+                Bytes &candidate,
+                std::string &candidate_error) -> bool
+        {
+            const std::size_t offset =
+                chunk_index * PARALLEL_CHUNK_SIZE;
+
+            const std::size_t chunk_size =
+                std::min(
+                    PARALLEL_CHUNK_SIZE,
+                    input.size() - offset);
+
+            CompressionProgressCallback chunk_progress;
+
+            if (progress)
+            {
+                chunk_progress =
+                    [&, chunk_index, profile_index, chunk_size](
+                        std::uint64_t processed,
+                        std::uint64_t,
+                        std::string_view phase)
+                {
+                    std::lock_guard<std::mutex> lock(progress_mutex);
+
+                    const std::uint64_t safe_processed =
+                        std::min<std::uint64_t>(
+                            processed,
+                            static_cast<std::uint64_t>(chunk_size));
+
+                    progress_by_chunk[chunk_index] =
+                        static_cast<std::uint64_t>(
+                            profile_index * chunk_size) +
+                        safe_processed;
+
+                    std::uint64_t total_processed = 0;
+
+                    for (const std::uint64_t amount : progress_by_chunk)
+                    {
+                        total_processed += amount;
+                    }
+
+                    progress(
+                        std::min<std::uint64_t>(
+                            total_processed / profile_count,
+                            bytes_total),
+                        bytes_total,
+                        phase);
+                };
+            }
+
+            return compress_single(
+                input.subspan(offset, chunk_size),
+                candidate,
+                &candidate_error,
+                profile,
+                std::move(chunk_progress));
+        };
+
+        auto worker_function = [&]()
+        {
+            while (!cancelled.load(std::memory_order_relaxed))
+            {
+                const std::size_t chunk_index =
+                    next_chunk.fetch_add(1, std::memory_order_relaxed);
+
+                if (chunk_index >= chunk_count)
+                {
+                    return;
+                }
+
+                EncodedChunk &result = chunks[chunk_index];
+
+                try
+                {
+                    if (level == CompressionLevel::Auto)
+                    {
+                        Bytes best_candidate;
+                        bool have_best = false;
+
+                        for (std::size_t profile_index = 0;
+                             profile_index < profiles.size();
+                             ++profile_index)
+                        {
+                            if (cancelled.load(std::memory_order_relaxed))
+                            {
+                                break;
+                            }
+
+                            Bytes candidate;
+                            std::string candidate_error;
+
+                            if (!run_profile(
+                                    chunk_index,
+                                    profile_index,
+                                    profiles[profile_index],
+                                    candidate,
+                                    candidate_error))
+                            {
+                                result.error =
+                                    candidate_error.empty()
+                                        ? "RIPC parallel chunk compression failed."
+                                        : std::move(candidate_error);
+                                cancelled.store(true, std::memory_order_relaxed);
+                                break;
+                            }
+
+                            if (!have_best ||
+                                candidate.size() < best_candidate.size())
+                            {
+                                best_candidate = std::move(candidate);
+                                have_best = true;
+                            }
+                        }
+
+                        if (have_best &&
+                            !cancelled.load(std::memory_order_relaxed))
+                        {
+                            result.bytes = std::move(best_candidate);
+                            result.success = true;
+                        }
+                    }
+                    else
+                    {
+                        Bytes candidate;
+                        std::string candidate_error;
+
+                        if (!run_profile(
+                                chunk_index,
+                                0,
+                                level,
+                                candidate,
+                                candidate_error))
+                        {
+                            result.error =
+                                candidate_error.empty()
+                                    ? "RIPC parallel chunk compression failed."
+                                    : std::move(candidate_error);
+                            cancelled.store(true, std::memory_order_relaxed);
+                        }
+                        else
+                        {
+                            result.bytes = std::move(candidate);
+                            result.success = true;
+                        }
+                    }
+                }
+                catch (const std::exception &exception)
+                {
+                    result.error = exception.what();
+                    cancelled.store(true, std::memory_order_relaxed);
+                }
+                catch (...)
+                {
+                    result.error = "Unknown error during RIPC parallel compression.";
+                    cancelled.store(true, std::memory_order_relaxed);
+                }
+            }
+        };
+
+        const unsigned int reported_workers =
+            std::thread::hardware_concurrency();
+
+        const std::size_t worker_count =
+            std::max<std::size_t>(
+                1,
+                std::min(
+                    chunk_count,
+                    reported_workers == 0
+                        ? std::size_t{1}
+                        : static_cast<std::size_t>(reported_workers)));
+
+        std::vector<std::thread> workers;
+        workers.reserve(worker_count);
+
+        try
+        {
+            for (std::size_t i = 0; i < worker_count; ++i)
+            {
+                workers.emplace_back(worker_function);
+            }
+        }
+        catch (...)
+        {
+            cancelled.store(true, std::memory_order_relaxed);
+
+            for (std::thread &worker : workers)
+            {
+                if (worker.joinable())
+                {
+                    worker.join();
+                }
+            }
+
+            set_error(error, "Unable to start RIPC worker threads.");
+            output.clear();
+            return false;
+        }
+
+        for (std::thread &worker : workers)
+        {
+            worker.join();
+        }
+
+        for (const EncodedChunk &chunk : chunks)
+        {
+            if (!chunk.success)
+            {
+                std::string failure =
+                    "RIPC parallel compression did not complete.";
+
+                for (const EncodedChunk &candidate : chunks)
+                {
+                    if (!candidate.error.empty())
+                    {
+                        failure = candidate.error;
+                        break;
+                    }
+                }
+
+                set_error(error, failure.c_str());
+                output.clear();
+                return false;
+            }
+        }
+
+        Bytes payload;
+
+        payload.reserve(
+            4 + chunk_count * 8 + input.size());
+
+        write_u32(
+            payload,
+            static_cast<std::uint32_t>(chunk_count));
+
+        for (std::size_t i = 0; i < chunk_count; ++i)
+        {
+            const std::size_t offset =
+                i * PARALLEL_CHUNK_SIZE;
+
+            const std::size_t original_chunk_size =
+                std::min(
+                    PARALLEL_CHUNK_SIZE,
+                    input.size() - offset);
+
+            if (chunks[i].bytes.size() >
+                static_cast<std::size_t>(
+                    std::numeric_limits<std::uint32_t>::max()))
+            {
+                set_error(error, "An RIPC compressed chunk exceeds the format limit.");
+                output.clear();
+                return false;
+            }
+
+            write_u32(
+                payload,
+                static_cast<std::uint32_t>(original_chunk_size));
+
+            write_u32(
+                payload,
+                static_cast<std::uint32_t>(chunks[i].bytes.size()));
+
+            payload.insert(
+                payload.end(),
+                chunks[i].bytes.begin(),
+                chunks[i].bytes.end());
+        }
+
+        output.reserve(16 + payload.size());
+
+        output.insert(
+            output.end(),
+            reinterpret_cast<const std::byte *>(MAGIC),
+            reinterpret_cast<const std::byte *>(MAGIC + 4));
+
+        write_u8(output, RIPC_VERSION);
+        write_u8(output, FLAG_CHUNKED);
+        write_u16(output, 0);
+        write_u64(output, bytes_total);
+
+        output.insert(
+            output.end(),
+            payload.begin(),
+            payload.end());
+
+        if (error)
+        {
+            error->clear();
+        }
+
+        return true;
+    }
+
     bool decompress(
         std::span<const std::byte> input,
         std::vector<std::byte> &output,
@@ -2126,10 +2504,11 @@ namespace rip::compression
                 position);
 
         if (version != 5 &&
-    version != 6 &&
-    version != 7 &&
-    version != 8 &&
-    version != RIPC_VERSION)
+            version != 6 &&
+            version != 7 &&
+            version != 8 &&
+            version != 10 &&
+            version != RIPC_VERSION)
 {
     set_error(
         error,
@@ -2146,7 +2525,8 @@ namespace rip::compression
         const std::uint8_t supported_flags =
             FLAG_HUFFMAN |
             FLAG_TOKEN_HUFFMAN |
-            FLAG_STORED;
+            FLAG_STORED |
+            FLAG_CHUNKED;
 
         if ((flags &
              static_cast<std::uint8_t>(
@@ -2184,6 +2564,127 @@ namespace rip::compression
 
         const auto payload =
             input.subspan(position);
+
+        if ((flags & FLAG_CHUNKED) != 0)
+        {
+            if (version != RIPC_VERSION ||
+                compression_flags != 0)
+            {
+                set_error(
+                    error,
+                    "Invalid RIPC chunked-stream flags or version.");
+                return false;
+            }
+
+            if (original_size >
+                static_cast<std::uint64_t>(
+                    std::numeric_limits<std::size_t>::max()))
+            {
+                set_error(
+                    error,
+                    "RIPC chunked output is too large.");
+                return false;
+            }
+
+            std::size_t chunk_position = 0;
+
+            if (payload.size() < 4)
+            {
+                set_error(
+                    error,
+                    "Truncated RIPC chunk table.");
+                return false;
+            }
+
+            const std::uint32_t chunk_count =
+                read_u32(payload, chunk_position);
+
+            if (chunk_count == 0 ||
+                chunk_count >
+                    (payload.size() - chunk_position) / 8)
+            {
+                set_error(
+                    error,
+                    "Invalid RIPC chunk count.");
+                return false;
+            }
+
+            const std::size_t expected_size =
+                static_cast<std::size_t>(original_size);
+
+            output.reserve(expected_size);
+
+            for (std::uint32_t i = 0; i < chunk_count; ++i)
+            {
+                if (payload.size() - chunk_position < 8)
+                {
+                    set_error(
+                        error,
+                        "Truncated RIPC chunk header.");
+                    output.clear();
+                    return false;
+                }
+
+                const std::uint32_t chunk_original_size =
+                    read_u32(payload, chunk_position);
+
+                const std::uint32_t chunk_compressed_size =
+                    read_u32(payload, chunk_position);
+
+                if (chunk_original_size == 0 ||
+                    chunk_original_size > expected_size - output.size() ||
+                    chunk_compressed_size >
+                        payload.size() - chunk_position)
+                {
+                    set_error(
+                        error,
+                        "Invalid RIPC chunk sizes.");
+                    output.clear();
+                    return false;
+                }
+
+                Bytes decoded_chunk;
+
+                if (!decompress(
+                        payload.subspan(
+                            chunk_position,
+                            chunk_compressed_size),
+                        decoded_chunk,
+                        error))
+                {
+                    output.clear();
+                    return false;
+                }
+
+                if (decoded_chunk.size() != chunk_original_size)
+                {
+                    set_error(
+                        error,
+                        "RIPC chunk output size mismatch.");
+                    output.clear();
+                    return false;
+                }
+
+                output.insert(
+                    output.end(),
+                    decoded_chunk.begin(),
+                    decoded_chunk.end());
+
+                chunk_position += chunk_compressed_size;
+            }
+
+            if (chunk_position != payload.size() ||
+                output.size() != expected_size)
+            {
+                set_error(
+                    error,
+                    "RIPC chunked output size mismatch.");
+                output.clear();
+                return false;
+            }
+
+            return true;
+        }
 
         if ((flags &
              FLAG_STORED) != 0)

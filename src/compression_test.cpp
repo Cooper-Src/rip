@@ -166,12 +166,134 @@ bool test_auto_selects_smallest(
     return true;
 }
 
+
+bool test_parallel_chunked()
+{
+    constexpr std::size_t input_size =
+        3 * 1024 * 1024 + 123;
+
+    const std::string pattern =
+        "RIPC parallel chunk compression checks all CPU workers. "
+        "0123456789abcdefghijklmnopqrstuvwxyz\n";
+
+    std::vector<std::byte> input(input_size);
+
+    for (std::size_t i = 0; i < input.size(); ++i)
+    {
+        input[i] =
+            static_cast<std::byte>(
+                static_cast<unsigned char>(
+                    pattern[i % pattern.size()]));
+    }
+
+    std::vector<std::byte> compressed;
+    std::vector<std::byte> restored;
+    std::string error;
+
+    std::uint64_t last_progress = 0;
+    bool progress_valid = true;
+
+    if (!rip::compression::compress(
+            input,
+            compressed,
+            &error,
+            rip::compression::CompressionLevel::Fast,
+            [&](std::uint64_t processed,
+                std::uint64_t total,
+                std::string_view phase)
+            {
+                (void)phase;
+
+                if (total != input.size() ||
+                    processed < last_progress ||
+                    processed > total)
+                {
+                    progress_valid = false;
+                }
+
+                last_progress = processed;
+            }))
+    {
+        std::cerr
+            << "Parallel chunk compression failed: "
+            << error
+            << '\n';
+        return false;
+    }
+
+    if (compressed.size() < 16 ||
+        static_cast<std::uint8_t>(compressed[4]) !=
+            rip::compression::RIPC_VERSION ||
+        static_cast<std::uint8_t>(compressed[5]) != 0x08)
+    {
+        std::cerr
+            << "Large input did not use the expected RIPC v11 chunked stream\n";
+        return false;
+    }
+
+    if (!progress_valid || last_progress != input.size())
+    {
+        std::cerr
+            << "Parallel compression progress was invalid or incomplete\n";
+        return false;
+    }
+
+    if (!rip::compression::decompress(
+            compressed,
+            restored,
+            &error) ||
+        restored != input)
+    {
+        std::cerr
+            << "Parallel chunk round trip failed: "
+            << error
+            << '\n';
+        return false;
+    }
+
+    std::vector<std::byte> automatic;
+    std::vector<std::byte> automatic_restored;
+
+    if (!rip::compression::compress(
+            input,
+            automatic,
+            &error) ||
+        !rip::compression::decompress(
+            automatic,
+            automatic_restored,
+            &error) ||
+        automatic_restored != input)
+    {
+        std::cerr
+            << "Automatic parallel chunk round trip failed: "
+            << error
+            << '\n';
+        return false;
+    }
+
+    if (automatic.size() > compressed.size())
+    {
+        std::cerr
+            << "Automatic mode was larger than the Fast chunk profile\n";
+        return false;
+    }
+
+    std::cout
+        << "Parallel chunks: PASS ("
+        << input.size()
+        << " -> "
+        << automatic.size()
+        << " bytes; progress and round trip verified)\n";
+
+    return true;
+}
+
 } // namespace
 
 int main()
 {
     std::cout
-        << "RIPC v10 compression test\n"
+        << "RIPC v11 compression test\n"
         << "==========================\n\n";
 
     std::string text =
@@ -285,6 +407,11 @@ int main()
         return 1;
     }
 
+if (!test_parallel_chunked())
+{
+    return 1;
+}
+
 if (!test_auto_selects_smallest(
         text_data,
         "Auto size selection: text") ||
@@ -366,7 +493,7 @@ for (const auto level : levels)
 }
 
     std::cout
-        << "\nAll RIPC v10 tests passed.\n";
+        << "\nAll RIPC v11 tests passed.\n";
 
     return 0;
 }

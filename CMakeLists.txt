@@ -11,6 +11,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_AUTOMOC ON)
 
+find_package(Threads REQUIRED)
+
 find_package(Qt6 REQUIRED COMPONENTS
     Core
     Gui
@@ -63,6 +65,7 @@ target_include_directories(rip
 target_link_libraries(rip
     PRIVATE
         zlib
+        Threads::Threads
 )
 
 if(MSVC)
@@ -108,6 +111,7 @@ target_link_libraries(
     rip-gui
     PRIVATE
         zlib
+        Threads::Threads
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
@@ -165,6 +169,12 @@ target_include_directories(
         ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
+target_link_libraries(
+    rip-compression-test
+    PRIVATE
+        Threads::Threads
+)
+
 if(MSVC)
     target_compile_options(
         rip-compression-test
@@ -200,6 +210,7 @@ target_link_libraries(
     rip-compression-bench
     PRIVATE
         zlib
+        Threads::Threads
 )
 
 if(MSVC)
