@@ -197,7 +197,8 @@ namespace rip::compression
 
         Bytes lz_compress(
             std::span<const std::byte> input,
-            CompressionLevel compression_level)
+            CompressionLevel compression_level,
+            const CompressionProgressCallback &progress)
         {
             if (input.empty())
             {
@@ -207,6 +208,22 @@ namespace rip::compression
             const int level =
                 static_cast<int>(
                     compression_level);
+
+            const std::string_view phase =
+                compression_level == CompressionLevel::Fast
+                    ? "RIPC Fast"
+                    : compression_level == CompressionLevel::Balanced
+                          ? "RIPC Balanced"
+                          : "RIPC Maximum";
+
+            constexpr std::size_t progress_interval =
+                1024 * 1024;
+            std::size_t next_progress = progress_interval;
+
+            if (progress)
+            {
+                progress(0, input.size(), phase);
+            }
 
             /*
              * Match-search tuning:
@@ -511,6 +528,12 @@ namespace rip::compression
             while (position <
                    input.size())
             {
+                if (progress && position >= next_progress)
+                {
+                    progress(position, input.size(), phase);
+                    next_progress = position + progress_interval;
+                }
+
                 auto [match_length,
                       match_distance] =
                     find_match(position);
@@ -813,6 +836,11 @@ namespace rip::compression
                 output[control_position] =
                     static_cast<std::byte>(
                         control);
+            }
+
+            if (progress)
+            {
+                progress(input.size(), input.size(), phase);
             }
 
             return output;
@@ -1846,7 +1874,8 @@ namespace rip::compression
         std::span<const std::byte> input,
         std::vector<std::byte> &output,
         std::string *error,
-        CompressionLevel level)
+        CompressionLevel level,
+        CompressionProgressCallback progress)
     {
         output.clear();
 
@@ -1877,7 +1906,8 @@ namespace rip::compression
                         input,
                         candidate,
                         &candidate_error,
-                        profile))
+                        profile,
+                        progress))
                 {
                     if (error)
                     {
@@ -1909,7 +1939,8 @@ namespace rip::compression
         const auto raw =
             lz_compress(
                 input,
-                level);
+                level,
+                progress);
 
         // Existing v0.5 byte-oriented Huffman path.
         std::vector<std::byte>

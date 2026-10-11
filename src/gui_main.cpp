@@ -959,7 +959,11 @@ namespace
         std::uint64_t processed,
         std::uint64_t total,
         const fs::path &file,
-        rip::ArchiveProgressStage stage)
+        rip::ArchiveProgressStage stage,
+        std::uint8_t,
+        std::uint64_t bytes_processed,
+        std::uint64_t bytes_total,
+        std::string_view byte_phase)
     {
         int percent = 0;
 
@@ -1031,7 +1035,13 @@ namespace
                     percent,
                     0,
                     99)) +
-            L",\"file\":\"" +
+            L",\"bytesProcessed\":" +
+            std::to_wstring(bytes_processed) +
+            L",\"bytesTotal\":" +
+            std::to_wstring(bytes_total) +
+            L",\"bytePhase\":\"" +
+            json_escape(std::wstring(byte_phase.begin(), byte_phase.end())) +
+            L"\",\"file\":\"" +
             json_escape(file.wstring()) +
             L"\",\"stage\":\"" +
             json_escape(stageText) +
@@ -1135,7 +1145,11 @@ namespace
             0,
             0,
             source,
-            rip::ArchiveProgressStage::Preparing);
+            rip::ArchiveProgressStage::Preparing,
+            rip::COMPRESSION_STORE,
+            0,
+            0,
+            "Preparing");
 
         std::thread(
             [source, final_output]()
@@ -1149,13 +1163,20 @@ namespace
                             std::uint64_t total,
                             const fs::path &file,
                             rip::ArchiveProgressStage stage,
-                            std::uint8_t)
+                            std::uint8_t compression,
+                            std::uint64_t bytes_processed,
+                            std::uint64_t bytes_total,
+                            std::string_view byte_phase)
                         {
                             post_archive_progress(
                                 processed,
                                 total,
                                 file,
-                                stage);
+                                stage,
+                                compression,
+                                bytes_processed,
+                                bytes_total,
+                                byte_phase);
                         });
 
                 QMetaObject::invokeMethod(

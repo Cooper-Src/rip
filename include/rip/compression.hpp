@@ -2,8 +2,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rip::compression
@@ -23,11 +25,18 @@ enum class CompressionLevel : std::uint8_t
 constexpr CompressionLevel RIPC_DEFAULT_LEVEL =
     CompressionLevel::Auto;
 
+using CompressionProgressCallback =
+    std::function<void(
+        std::uint64_t bytes_processed,
+        std::uint64_t bytes_total,
+        std::string_view phase)>;
+
 bool compress(
     std::span<const std::byte> input,
     std::vector<std::byte>& output,
     std::string* error = nullptr,
-    CompressionLevel level = RIPC_DEFAULT_LEVEL);
+    CompressionLevel level = RIPC_DEFAULT_LEVEL,
+    CompressionProgressCallback progress = {});
 
 bool decompress(
     std::span<const std::byte> input,

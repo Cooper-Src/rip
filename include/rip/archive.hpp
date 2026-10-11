@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <functional>
 
@@ -51,7 +52,10 @@ namespace rip
             std::uint64_t total,
             const std::filesystem::path &file,
             ArchiveProgressStage stage,
-            std::uint8_t compression)>;
+            std::uint8_t compression,
+            std::uint64_t bytes_processed,
+            std::uint64_t bytes_total,
+            std::string_view byte_phase)>;
 
     class Archive
     {

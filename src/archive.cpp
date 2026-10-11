@@ -282,57 +282,153 @@ namespace rip
         }
 
         std::vector<std::byte> compress_deflate(
-            std::span<const std::byte> input)
+            std::span<const std::byte> input,
+            const std::function<void(
+                std::uint64_t,
+                std::uint64_t)> &progress = {})
         {
-            if (input.size() >
-                static_cast<std::size_t>(
-                    std::numeric_limits<uLong>::max()))
-            {
-                throw std::runtime_error(
-                    "File is too large for zlib compression.");
-            }
+            z_stream stream{};
 
-            const uLong source_size =
-                static_cast<uLong>(input.size());
-
-            const uLong max_compressed_size =
-                compressBound(source_size);
-
-            if (max_compressed_size >
-                static_cast<uLong>(
-                    std::numeric_limits<std::size_t>::max()))
-            {
-                throw std::runtime_error(
-                    "Compressed data is too large for this build.");
-            }
-
-            std::vector<std::byte> output(
-                static_cast<std::size_t>(
-                    max_compressed_size));
-
-            uLongf compressed_size =
-                max_compressed_size;
-
-            const int result =
-                compress2(
-                    reinterpret_cast<Bytef *>(
-                        output.data()),
-                    &compressed_size,
-                    reinterpret_cast<const Bytef *>(
-                        input.data()),
-                    source_size,
+            const int init_result =
+                deflateInit(
+                    &stream,
                     Z_DEFAULT_COMPRESSION);
 
-            if (result != Z_OK)
+            if (init_result != Z_OK)
             {
                 throw std::runtime_error(
-                    "zlib compression failed with error code: " +
-                    std::to_string(result));
+                    "Unable to initialize DEFLATE compression.");
             }
 
-            output.resize(
-                static_cast<std::size_t>(
-                    compressed_size));
+            struct StreamGuard
+            {
+                z_stream *stream;
+
+                ~StreamGuard()
+                {
+                    deflateEnd(stream);
+                }
+            } guard{&stream};
+
+            std::vector<std::byte> output;
+            std::array<std::byte, 64 * 1024> output_buffer{};
+
+            constexpr std::uint64_t progress_interval =
+                1024 * 1024;
+
+            std::uint64_t input_offset = 0;
+            std::uint64_t last_reported = 0;
+
+            if (progress)
+            {
+                progress(0, input.size());
+            }
+
+            while (input_offset < input.size())
+            {
+                const std::size_t amount =
+                    std::min<std::size_t>(
+                        input.size() - static_cast<std::size_t>(input_offset),
+                        std::numeric_limits<uInt>::max());
+
+                stream.next_in =
+                    reinterpret_cast<Bytef *>(
+                        const_cast<std::byte *>(
+                            input.data() +
+                            static_cast<std::size_t>(input_offset)));
+
+                stream.avail_in =
+                    static_cast<uInt>(amount);
+
+                while (stream.avail_in > 0)
+                {
+                    stream.next_out =
+                        reinterpret_cast<Bytef *>(
+                            output_buffer.data());
+
+                    stream.avail_out =
+                        static_cast<uInt>(
+                            output_buffer.size());
+
+                    const uInt input_before =
+                        stream.avail_in;
+
+                    const int result =
+                        deflate(
+                            &stream,
+                            Z_NO_FLUSH);
+
+                    const std::uint64_t consumed =
+                        input_before - stream.avail_in;
+
+                    input_offset += consumed;
+
+                    const std::size_t produced =
+                        output_buffer.size() -
+                        stream.avail_out;
+
+                    output.insert(
+                        output.end(),
+                        output_buffer.begin(),
+                        output_buffer.begin() + produced);
+
+                    if (result != Z_OK)
+                    {
+                        throw std::runtime_error(
+                            "zlib DEFLATE compression failed with error code: " +
+                            std::to_string(result));
+                    }
+
+                    if (progress &&
+                        (input_offset - last_reported >= progress_interval ||
+                         input_offset == input.size()))
+                    {
+                        progress(input_offset, input.size());
+                        last_reported = input_offset;
+                    }
+                }
+            }
+
+            int result = Z_OK;
+
+            do
+            {
+                stream.next_out =
+                    reinterpret_cast<Bytef *>(
+                        output_buffer.data());
+
+                stream.avail_out =
+                    static_cast<uInt>(
+                        output_buffer.size());
+
+                result =
+                    deflate(
+                        &stream,
+                        Z_FINISH);
+
+                const std::size_t produced =
+                    output_buffer.size() -
+                    stream.avail_out;
+
+                output.insert(
+                    output.end(),
+                    output_buffer.begin(),
+                    output_buffer.begin() + produced);
+
+                if (result != Z_OK &&
+                    result != Z_STREAM_END)
+                {
+                    throw std::runtime_error(
+                        "zlib DEFLATE finalization failed with error code: " +
+                        std::to_string(result));
+                }
+            } while (result != Z_STREAM_END);
+
+            if (progress &&
+                last_reported != input.size())
+            {
+                progress(input.size(), input.size());
+            }
 
             return output;
         }
@@ -706,7 +802,10 @@ namespace rip
         }
 
         std::vector<std::byte> read_file(
-            const fs::path &path)
+            const fs::path &path,
+            const std::function<void(
+                std::uint64_t,
+                std::uint64_t)> &progress = {})
         {
             std::ifstream file(
                 path,
@@ -740,18 +839,44 @@ namespace rip
 
             file.seekg(0);
 
-            if (!data.empty())
+            if (progress)
             {
-                file.read(
-                    reinterpret_cast<char *>(data.data()),
-                    static_cast<std::streamsize>(data.size()));
+                progress(0, data.size());
             }
 
-            if (!file && !data.empty())
+            constexpr std::size_t chunk_size = 1024 * 1024;
+            std::size_t offset = 0;
+            std::size_t last_reported = 0;
+
+            while (offset < data.size())
             {
-                throw std::runtime_error(
-                    "Failed reading file: " +
-                    path.string());
+                const std::size_t amount =
+                    std::min(
+                        chunk_size,
+                        data.size() - offset);
+
+                file.read(
+                    reinterpret_cast<char *>(data.data() + offset),
+                    static_cast<std::streamsize>(amount));
+
+                const std::streamsize bytes_read = file.gcount();
+
+                if (bytes_read != static_cast<std::streamsize>(amount))
+                {
+                    throw std::runtime_error(
+                        "Failed reading file: " +
+                        path.string());
+                }
+
+                offset += static_cast<std::size_t>(bytes_read);
+
+                if (progress &&
+                    (offset - last_reported >= chunk_size ||
+                     offset == data.size()))
+                {
+                    progress(offset, data.size());
+                    last_reported = offset;
+                }
             }
 
             return data;
@@ -812,7 +937,24 @@ namespace rip
                 [&](PendingFile &file)
             {
                 file.data =
-                    read_file(file.source);
+                    read_file(
+                        file.source,
+                        [&](std::uint64_t bytes_processed,
+                            std::uint64_t bytes_total)
+                        {
+                            if (progress)
+                            {
+                                progress(
+                                    processed_files,
+                                    total_files,
+                                    file.source,
+                                    ArchiveProgressStage::Compressing,
+                                    COMPRESSION_STORE,
+                                    bytes_processed,
+                                    bytes_total,
+                                    "Reading");
+                            }
+                        });
 
                 file.original_size =
                     static_cast<std::uint64_t>(
@@ -837,7 +979,23 @@ namespace rip
                     {
                         auto compressed =
                             compress_deflate(
-                                file.data);
+                                file.data,
+                                [&](std::uint64_t bytes_processed,
+                                    std::uint64_t bytes_total)
+                                {
+                                    if (progress)
+                                    {
+                                        progress(
+                                            processed_files,
+                                            total_files,
+                                            file.source,
+                                            ArchiveProgressStage::Compressing,
+                                            COMPRESSION_STORE,
+                                            bytes_processed,
+                                            bytes_total,
+                                            "DEFLATE");
+                                    }
+                                });
 
                         if (compressed.size() <
                             best_data.size())
@@ -857,10 +1015,31 @@ namespace rip
 
                         std::string ripc_error;
 
+                        const auto ripc_progress =
+                            [&](std::uint64_t bytes_processed,
+                                std::uint64_t bytes_total,
+                                std::string_view phase)
+                            {
+                                if (progress)
+                                {
+                                    progress(
+                                        processed_files,
+                                        total_files,
+                                        file.source,
+                                        ArchiveProgressStage::Compressing,
+                                        COMPRESSION_STORE,
+                                        bytes_processed,
+                                        bytes_total,
+                                        phase);
+                                }
+                            };
+
                         if (rip::compression::compress(
                                 file.data,
                                 compressed,
-                                &ripc_error))
+                                &ripc_error,
+                                rip::compression::RIPC_DEFAULT_LEVEL,
+                                ripc_progress))
                         {
                             if (compressed.size() <
                                 best_data.size())
@@ -890,7 +1069,10 @@ namespace rip
                         total_files,
                         file.source,
                         ArchiveProgressStage::Compressing,
-                        file.compression);
+                        file.compression,
+                        file.original_size,
+                        file.original_size,
+                        "Complete");
                 }
             };
 
@@ -973,7 +1155,10 @@ namespace rip
                     total_files,
                     input,
                     ArchiveProgressStage::Preparing,
-                    COMPRESSION_STORE);
+                    COMPRESSION_STORE,
+                    0,
+                    0,
+                    "Preparing");
             }
 
             std::vector<PendingFile> files;
@@ -1165,7 +1350,10 @@ namespace rip
                             total_files,
                             file.source,
                             ArchiveProgressStage::Writing,
-                            file.compression);
+                            file.compression,
+                            file.original_size,
+                            file.original_size,
+                            "Writing");
                     }
                 }
             }
@@ -1202,7 +1390,10 @@ namespace rip
                             total_files,
                             file.source,
                             ArchiveProgressStage::Writing,
-                            file.compression);
+                            file.compression,
+                            file.original_size,
+                            file.original_size,
+                            "Writing");
                     }
 
                     if (!archive)
@@ -1308,7 +1499,10 @@ namespace rip
                     total_files,
                     output,
                     ArchiveProgressStage::Finalizing,
-                    COMPRESSION_STORE);
+                    COMPRESSION_STORE,
+                    0,
+                    0,
+                    "Finalizing");
             }
 
             archive.seekp(0);
