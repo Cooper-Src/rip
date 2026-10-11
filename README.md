@@ -2,7 +2,7 @@
 
 <p align="center">
   <strong>RIP Archive Utility</strong><br>
-  A lightweight custom archive format and archive manager built for Windows ARM64/x64 and Linux ARM64/x64.
+  A custom archive format, compression codec, command-line tool, and Qt-based archive manager for Windows and Linux.
 </p>
 
 <p align="center">
@@ -16,57 +16,77 @@
     <img src="https://img.shields.io/github/license/Cooper-Src/rip" alt="License">
   </a>
   <img src="https://img.shields.io/badge/C%2B%2B-23-00599C?logo=cplusplus&logoColor=white" alt="C++23">
-  <img src="https://img.shields.io/badge/Platform-Windows%20ARM64%20%7C%20x64-0078D4?logo=windows&logoColor=white" alt="Windows ARM64 and x64">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-4c8c4a" alt="Windows and Linux">
 </p>
 
-RIP is a custom archive utility written in C++23. It provides both a command-line interface and a lightweight native Windows GUI for creating, inspecting, testing, and extracting `.rip` archives.
+RIP is a C++23 archive utility with a command-line interface and a graphical archive manager built using Qt 6 and Qt WebEngine. It creates, lists, tests, and extracts its own `.rip` archive format.
 
-The project also includes **RIPC**, a custom compression codec designed specifically for RIP. Archive creation uses adaptive compression so each file can use STORE, DEFLATE, or RIPC depending on which representation is smaller.
+RIP includes **RIPC**, a custom LZ-style compression codec with token encoding and Huffman entropy coding. During archive creation, each file is evaluated using STORE, DEFLATE, and RIPC, and the archive stores the smallest completed representation. RIPC's automatic mode compares its supported search profiles and keeps the smallest resulting stream.
+
+> **Project status:** RIP and the `.rip` format are actively developed. The format and codec may change as the project evolves.
 
 ## Features
 
-- Custom `.rip` archive format
-- C++23 implementation
-- Native Windows ARM64 and x64 support
-- Linux ARM64 and x64 CLI support
-- Command-line interface
-- WebView2-based Windows GUI
-- Archive creation, listing, testing, inspection, and extraction
-- CRC32 integrity validation
-- STORE, DEFLATE, and RIPC compression methods
-- Adaptive per-file compression selection
-- Hierarchical archive browsing in the GUI
-- Archive creation progress reporting
-- Automated Windows ARM64/x64 and Linux ARM64/x64 release packaging
-- Automated release tests through GitHub Actions
+- Custom `.rip` archive format with explicit binary serialization.
+- Command-line utility and Qt-based graphical archive manager.
+- Windows ARM64 and x64 builds, plus Linux ARM64 and x86-64 builds.
+- Adaptive per-file STORE, DEFLATE, and RIPC compression.
+- CRC32 checksums and archive integrity testing.
+- Browse the filesystem and open/browse RIP archives in the GUI.
+- Create, extract, test, inspect, and delete archives through the GUI.
+- Archive creation dialog with file-level progress and a second byte-level progress bar. The byte bar reports the current reading/compression phase so it can continue moving while a large file is still being processed.
+- Separate, architecture-specific release packages for Windows ARM64, Windows x64, Linux ARM64, and Linux x86-64.
+- GitHub Actions builds, compression tests, archive round-trip tests, and release packaging.
 
 ## Download
 
-Prebuilt Windows releases are published on the [Releases](https://github.com/Cooper-Src/rip/releases) page.
+Get the latest packages from the [GitHub Releases page](https://github.com/Cooper-Src/rip/releases).
 
-Each architecture-specific release package includes:
+The current release is **v1.1.3**:
 
-- `rip.exe` — command-line archive utility
-- `rip-gui.exe` — graphical archive manager
-- GUI assets required by `rip-gui.exe`
+| Platform | Download |
+| --- | --- |
+| Windows ARM64 | [rip-1.1.3-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-windows-arm64.zip) |
+| Windows x64 | [rip-1.1.3-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-windows-x64.zip) |
+| Linux ARM64 / AArch64 | [rip-1.1.3-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-linux-aarch64.tar.gz) |
+| Linux x64 / x86-64 | [rip-1.1.3-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.3/rip-1.1.3-linux-x86_64.tar.gz) |
 
-RIP supports **Windows on ARM64 and x64**.
+### Windows
+
+Each Windows ZIP contains:
+
+- `rip.exe` — command-line utility.
+- `rip-gui.exe` — graphical archive manager.
+- `gui/` — the GUI's web assets.
+- Bundled Qt libraries, plugins, and Qt WebEngine runtime files.
+
+The Windows release packages are designed to run without a separate Qt installation. Extract the ZIP and launch `rip-gui.exe` or use `rip.exe` from a terminal.
+
+### Linux
+
+Each Linux tarball contains the command-line tool, Qt GUI executable, and GUI assets. The GUI requires compatible Qt 6 runtime libraries, including Qt WebEngine and Qt WebChannel, to be installed by the system package manager.
+
+Extract the package, then launch `./rip` for CLI use or `./rip-gui` for the GUI.
 
 ## Command-line usage
 
+The commands below work with the `rip` executable (use `rip.exe` in Windows terminals if it is not on your PATH).
+
 ### Create an archive
+
+Create an archive from a directory:
 
 ```powershell
 rip create archive.rip C:\Path\To\Folder
 ```
 
-or:
+Or from a single file:
 
 ```powershell
 rip create archive.rip C:\Path\To\file.txt
 ```
 
-### List an archive
+### List archive contents
 
 ```powershell
 rip list archive.rip
@@ -78,7 +98,7 @@ rip list archive.rip
 rip test archive.rip
 ```
 
-This validates the archive structure, decompresses entries, and checks their CRC32 values.
+Testing validates the archive structure, decompresses its entries, and checks their CRC32 checksums.
 
 ### Extract an archive
 
@@ -92,159 +112,137 @@ rip extract archive.rip C:\Output\Folder
 rip --help
 ```
 
+The CLI commands currently available are `create`, `list`, `test`, `extract`, and `help`. Archive information and filesystem/archive browsing are available in the GUI.
+
 ## GUI
 
-Run:
+Run `rip-gui.exe` on Windows, or `./rip-gui` on Linux when its Qt runtime dependencies are installed.
 
-```powershell
-rip-gui.exe
-```
+The GUI is a file-manager-style interface. It can browse the filesystem, open and browse RIP archives, create archives, extract and test them, view archive information, and delete selected files or archives.
 
-The GUI provides a lightweight file-manager-style interface for working with RIP archives.
+When creating an archive, the dialog shows two progress indicators:
 
-Current functionality includes:
-
-- Browse the Windows filesystem
-- Create RIP archives
-- Open and browse RIP archives
-- Extract archives
-- Test archives
-- View archive information
-- Delete files and archives
-- Show archive creation progress
+- **File progress** tracks the archive's overall file/stage progress.
+- **Byte progress** shows bytes processed against the current file's size, along with the current pass (such as reading, DEFLATE, or an RIPC search pass). This provides activity feedback even when one large file keeps the file count unchanged.
 
 ## Building from source
 
-### Windows requirements
+### Requirements
 
-- Windows 11
-- Visual Studio 2026 Build Tools
-- C++23 toolchain
-- CMake 3.25 or newer
-- Git
+- C++23 compiler and toolchain.
+- CMake 3.25 or newer.
+- Git (CMake fetches and builds zlib-ng as part of the configuration).
+- Qt 6 development packages containing **Core, Gui, Widgets, WebChannel, WebEngineCore, and WebEngineWidgets**.
+- Node.js 22 and npm are needed only when rebuilding the TypeScript/Vite frontend or when running the release workflow.
 
-The GUI also uses the Microsoft WebView2 SDK. The CMake build downloads the required SDK automatically.
+The checked-in GUI assets under `gui/dist/` are copied into the build output automatically. If you edit the frontend sources under `gui/src/`, rebuild those assets first:
 
-### Linux requirements
+```bash
+cd gui
+npm ci
+npm run build
+cd ..
+```
 
-- A modern Linux distribution
-- C++23 toolchain
-- CMake 3.25 or newer
-- Ninja (recommended)
-- Git
+### Windows ARM64
 
-Linux currently builds the RIP command-line utility. The WebView2 GUI is Windows-only.
-
-### ARM64
-
-From the repository root:
+With Visual Studio 2026 Build Tools and a matching Qt 6 installation:
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 18 2026" -A ARM64
 cmake --build build --config Release --parallel
 ```
 
-### x64
-
-From the repository root:
+### Windows x64
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 18 2026" -A x64
 cmake --build build --config Release --parallel
 ```
 
-RIP also includes convenience build scripts under `scripts\` for ARM64 and x64 builds.
+The selected Qt installation must match the target architecture and compiler. RIP also includes convenience scripts under `scripts/ ` for common builds.
 
 ### Linux
 
-From the repository root:
+On Ubuntu/Debian-based systems, install the build dependencies first:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y \
+  cmake ninja-build build-essential git \
+  qt6-base-dev qt6-webengine-dev qt6-webchannel-dev
+```
+
+Then configure and build:
 
 ```bash
 cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-linux --parallel
 ```
 
-Or use the convenience script:
+Or run the helper script:
 
 ```bash
 ./scripts/build-linux.sh
 ```
 
-The Linux build produces `build-linux/rip`.
+Both `rip` and `rip-gui` are build targets. For other distributions, install the equivalent Qt 6 development packages for the components listed above.
 
 ## Testing
 
-The repository contains standalone tests for the compression and token systems.
+The project includes dedicated token-codec, token-Huffman, and compression tests. After configuring and building:
 
-Build the test targets with:
+Windows:
 
 ```powershell
 cmake --build build --config Release --target rip-token-codec-test
 cmake --build build --config Release --target rip-token-huffman-test
 cmake --build build --config Release --target rip-compression-test
+.\build\Release\rip-token-codec-test.exe
+.\build\Release\rip-token-huffman-test.exe
+.\build\Release\rip-compression-test.exe
 ```
 
-The release workflow also runs these tests automatically before publishing a release.
+Linux (adjust `build` if you used a different build directory):
 
-## RIPC
+```bash
+cmake --build build-linux --target rip-token-codec-test rip-token-huffman-test rip-compression-test
+./build-linux/rip-token-codec-test
+./build-linux/rip-token-huffman-test
+./build-linux/rip-compression-test
+```
 
-RIPC is RIP's custom compression codec.
+GitHub Actions also builds the GUI frontend, runs the compression tests, and verifies CLI archive creation, listing, testing, extraction, and round-trip file contents before publishing a release.
 
-It currently combines LZ-style matching with token encoding and Huffman entropy coding. RIP chooses RIPC only when it produces a smaller representation than the other available methods.
+## RIPC compression
 
-RIPC is still actively developed, so its format and implementation may evolve before a stable standalone format is declared.
+RIPC combines LZ-style match finding with token encoding and Huffman entropy coding. The default automatic mode evaluates the Fast, Balanced, and Maximum search profiles and selects the smallest completed RIPC stream, including its headers and entropy-coding tables.
+
+RIP then compares the chosen RIPC result with DEFLATE and STORE for each file. RIPC is **not guaranteed to be smaller or faster for every input**; if another representation is smaller, RIP stores that instead. The codec is still under active development.
 
 ## Archive format
 
-RIP archives use a custom binary format with explicit serialization rather than relying on compiler struct layout.
+RIP uses a custom binary format with explicit serialization instead of compiler-dependent struct layouts. Archive metadata includes the format version, flags, index location and size, file offsets and sizes, CRC32 checksums, compression methods, and archive paths. Archives may use solid RIPC when the archive engine determines that it is beneficial.
 
-The archive stores:
-
-- Format version
-- Archive flags
-- Entry count
-- Index location and size
-- File offsets and sizes
-- CRC32 checksums
-- Compression method
-- Archive paths
-
-The format is intended to be simple, deterministic, and straightforward to validate.
+The format, GUI, and codec are still evolving; do not assume permanent compatibility between every development version.
 
 ## Releases
 
-Tagged releases are built automatically by GitHub Actions.
+Release versions are coordinated by `CMakeLists.txt` and `RELEASE_VERSION`. To prepare a new release:
 
-Creating a release:
+1. Update the project version in `CMakeLists.txt`.
+2. Set `RELEASE_VERSION` to the matching tag (for example, `v1.1.4`).
+3. Commit both version changes to `main`.
 
-```powershell
-git tag v1.0.2
-git push origin v1.0.2
-```
+After the commit passes the RIPC test workflow, GitHub Actions creates the matching version tag and dispatches the full platform release workflow. That workflow rebuilds the frontend, builds and tests Windows ARM64/x64 and Linux ARM64/x86-64, packages the platform artifacts, and publishes the GitHub Release.
 
-The release workflow:
+See the [release workflow](https://github.com/Cooper-Src/rip/actions/workflows/release.yml) and the [tagging workflow](https://github.com/Cooper-Src/rip/actions/workflows/tag-release.yml) for details.
 
-1. Builds RIP natively for Windows ARM64 and x64.
-2. Runs the compression and token tests on both architectures.
-3. Packages the CLI, GUI, and GUI assets.
-4. Creates a GitHub Release.
-5. Uploads the Windows ZIPs and Linux ARM64/x64 tarballs automatically.
-
-x64 builds can also be produced directly from source using the x64 CMake configuration above.
-
-## Project status
-
-RIP is an actively developed project. The archive format, GUI, and RIPC codec are still evolving as new functionality and validation are added.
-
-## Dependencies
+## Dependencies and license
 
 RIP uses:
 
-- [zlib-ng](https://github.com/zlib-ng/zlib-ng) for DEFLATE-compatible compression support.
-- [Microsoft WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) for the Windows GUI.
+- [zlib-ng](https://github.com/zlib-ng/zlib-ng), built in zlib-compatible mode, for DEFLATE-compatible compression.
+- [Qt 6](https://www.qt.io/) and Qt WebEngine / WebChannel for the graphical interface.
 
-Their respective licenses and terms apply to those third-party components.
-
-## License
-
-RIP is licensed under the [MIT License](LICENSE).
+RIP is licensed under the [MIT License](LICENSE). Third-party components are subject to their own licenses.
