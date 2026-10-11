@@ -25,6 +25,28 @@ on:
       - "gui/dist/**"
       - "CMakeLists.txt"
       - ".github/workflows/ripc-test.yml"
+  pull_request:
+    paths:
+      - "RELEASE_VERSION"
+      - "include/rip/compression.hpp"
+      - "include/rip/token_codec.hpp"
+      - "include/rip/token_huffman.hpp"
+      - "src/compression.cpp"
+      - "src/compression_test.cpp"
+      - "src/compression_bench.cpp"
+      - "src/token_codec.cpp"
+      - "src/token_huffman.cpp"
+      - "src/archive.cpp"
+      - "src/main.cpp"
+      - "include/rip/archive.hpp"
+      - "include/rip/format.hpp"
+      - "src/gui_main.cpp"
+      - "gui/src/**"
+      - "gui/package.json"
+      - "gui/package-lock.json"
+      - "gui/dist/**"
+      - "CMakeLists.txt"
+      - ".github/workflows/ripc-test.yml"
 
 jobs:
   frontend:
