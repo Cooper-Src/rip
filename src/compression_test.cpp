@@ -251,6 +251,25 @@ bool test_parallel_chunked()
         return false;
     }
 
+    /*
+     * Truncating a chunked stream must fail before decoded data is
+     * returned. This exercises the chunk-table bounds checks added
+     * ahead of parallel worker startup.
+     */
+    std::vector<std::byte> truncated = compressed;
+    truncated.pop_back();
+
+    if (rip::compression::decompress(
+            truncated,
+            restored,
+            &error) ||
+        !restored.empty())
+    {
+        std::cerr
+            << "Truncated parallel chunk stream was not rejected safely\n";
+        return false;
+    }
+
     std::vector<std::byte> automatic;
     std::vector<std::byte> automatic_restored;
 

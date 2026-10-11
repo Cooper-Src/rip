@@ -952,6 +952,51 @@ namespace rip::compression
                 static_cast<std::size_t>(
                     original_size));
 
+            /*
+             * Expand LZ matches in bulk. When the distance covers the full
+             * match, one memcpy is sufficient. For overlapping matches,
+             * copy the initial period then double the available pattern;
+             * each memcpy's source and destination do not overlap.
+             */
+            auto append_match =
+                [&](std::size_t distance, std::size_t length)
+            {
+                const std::size_t destination_offset = output.size();
+                output.resize(destination_offset + length);
+
+                std::byte* const destination =
+                    output.data() + destination_offset;
+
+                if (distance >= length)
+                {
+                    std::memcpy(
+                        destination,
+                        destination - distance,
+                        length);
+                    return;
+                }
+
+                std::memcpy(
+                    destination,
+                    destination - distance,
+                    distance);
+
+                std::size_t copied = distance;
+
+                while (copied < length)
+                {
+                    const std::size_t count =
+                        std::min(copied, length - copied);
+
+                    std::memcpy(
+                        destination + copied,
+                        destination,
+                        count);
+
+                    copied += count;
+                }
+            };
+
             std::size_t position = 0;
             std::uint16_t last_match_distance = 0;
 
@@ -1076,17 +1121,7 @@ namespace rip::compression
                             return false;
                         }
 
-                        const std::size_t source =
-                            output.size() -
-                            distance;
-
-                        for (std::size_t i = 0;
-                             i < length;
-                             ++i)
-                        {
-                            output.push_back(
-                                output[source + i]);
-                        }
+                        append_match(distance, length);
 
                         break;
                     }
@@ -1220,17 +1255,16 @@ namespace rip::compression
                             return false;
                         }
 
-                        const std::size_t source =
-                            output.size() -
-                            last_match_distance;
-
-                        for (std::size_t i = 0;
-                             i < length;
-                             ++i)
+                        if (last_match_distance > output.size())
                         {
-                            output.push_back(
-                                output[source + i]);
+                            set_error(
+                                error,
+                                "Invalid repeated RIPC distance.");
+
+                            return false;
                         }
+
+                        append_match(last_match_distance, length);
 
                         break;
                     }
@@ -2664,9 +2698,7 @@ namespace rip::compression
 
             if (payload.size() < 4)
             {
-                set_error(
-                    error,
-                    "Truncated RIPC chunk table.");
+                set_error(error, "Truncated RIPC chunk table.");
                 return false;
             }
 
@@ -2677,25 +2709,34 @@ namespace rip::compression
                 chunk_count >
                     (payload.size() - chunk_position) / 8)
             {
-                set_error(
-                    error,
-                    "Invalid RIPC chunk count.");
+                set_error(error, "Invalid RIPC chunk count.");
                 return false;
             }
 
             const std::size_t expected_size =
                 static_cast<std::size_t>(original_size);
 
-            output.reserve(expected_size);
+            struct ChunkDescriptor
+            {
+                std::uint32_t original_size{};
+                std::span<const std::byte> compressed;
+            };
 
+            std::vector<ChunkDescriptor> descriptors;
+            descriptors.reserve(chunk_count);
+
+            std::size_t total_original_size = 0;
+
+            /*
+             * Validate the complete table before starting workers. This
+             * prevents malformed sizes from underflowing output arithmetic
+             * and makes each chunk's input/output range independent.
+             */
             for (std::uint32_t i = 0; i < chunk_count; ++i)
             {
                 if (payload.size() - chunk_position < 8)
                 {
-                    set_error(
-                        error,
-                        "Truncated RIPC chunk header.");
-                    output.clear();
+                    set_error(error, "Truncated RIPC chunk header.");
                     return false;
                 }
 
@@ -2706,58 +2747,160 @@ namespace rip::compression
                     read_u32(payload, chunk_position);
 
                 if (chunk_original_size == 0 ||
-                    chunk_original_size > expected_size - output.size() ||
+                    total_original_size > expected_size ||
+                    chunk_original_size > expected_size - total_original_size ||
                     chunk_compressed_size >
                         payload.size() - chunk_position)
                 {
-                    set_error(
-                        error,
-                        "Invalid RIPC chunk sizes.");
-                    output.clear();
+                    set_error(error, "Invalid RIPC chunk sizes.");
                     return false;
                 }
 
-                Bytes decoded_chunk;
-
-                if (!decompress(
-                        payload.subspan(
+                descriptors.push_back(
+                    ChunkDescriptor{
+                        .original_size = chunk_original_size,
+                        .compressed = payload.subspan(
                             chunk_position,
-                            chunk_compressed_size),
-                        decoded_chunk,
-                        error))
+                            chunk_compressed_size)});
+
+                chunk_position += chunk_compressed_size;
+                total_original_size += chunk_original_size;
+            }
+
+            if (chunk_position != payload.size() ||
+                total_original_size != expected_size)
+            {
+                set_error(error, "RIPC chunked output size mismatch.");
+                return false;
+            }
+
+            std::vector<Bytes> decoded_chunks(chunk_count);
+            std::vector<std::string> chunk_errors(chunk_count);
+            std::atomic<std::size_t> next_chunk{0};
+            std::atomic<bool> failed{false};
+
+            auto worker_function = [&]()
+            {
+                while (!failed.load(std::memory_order_relaxed))
                 {
-                    output.clear();
+                    const std::size_t index =
+                        next_chunk.fetch_add(1, std::memory_order_relaxed);
+
+                    if (index >= descriptors.size())
+                    {
+                        return;
+                    }
+
+                    std::string& chunk_error = chunk_errors[index];
+
+                    try
+                    {
+                        if (!decompress(
+                                descriptors[index].compressed,
+                                decoded_chunks[index],
+                                &chunk_error))
+                        {
+                            if (chunk_error.empty())
+                            {
+                                chunk_error = "RIPC chunk decompression failed.";
+                            }
+
+                            failed.store(true, std::memory_order_relaxed);
+                            return;
+                        }
+
+                        if (decoded_chunks[index].size() !=
+                            descriptors[index].original_size)
+                        {
+                            chunk_error = "RIPC chunk output size mismatch.";
+                            failed.store(true, std::memory_order_relaxed);
+                            return;
+                        }
+                    }
+                    catch (const std::exception& exception)
+                    {
+                        chunk_error = exception.what();
+                        failed.store(true, std::memory_order_relaxed);
+                        return;
+                    }
+                    catch (...)
+                    {
+                        chunk_error = "Unknown error during parallel RIPC decompression.";
+                        failed.store(true, std::memory_order_relaxed);
+                        return;
+                    }
+                }
+            };
+
+            const unsigned int reported_workers =
+                std::thread::hardware_concurrency();
+
+            const std::size_t worker_count =
+                std::max<std::size_t>(
+                    1,
+                    std::min(
+                        descriptors.size(),
+                        reported_workers == 0
+                            ? std::size_t{1}
+                            : static_cast<std::size_t>(reported_workers)));
+
+            std::vector<std::thread> workers;
+            workers.reserve(worker_count);
+
+            try
+            {
+                for (std::size_t i = 0; i < worker_count; ++i)
+                {
+                    workers.emplace_back(worker_function);
+                }
+            }
+            catch (...)
+            {
+                failed.store(true, std::memory_order_relaxed);
+
+                for (std::thread& worker : workers)
+                {
+                    if (worker.joinable())
+                    {
+                        worker.join();
+                    }
+                }
+
+                set_error(error, "Unable to start RIPC decompression workers.");
+                return false;
+            }
+
+            for (std::thread& worker : workers)
+            {
+                worker.join();
+            }
+
+            for (std::size_t i = 0; i < descriptors.size(); ++i)
+            {
+                if (!chunk_errors[i].empty())
+                {
+                    set_error(error, chunk_errors[i].c_str());
                     return false;
                 }
 
-                if (decoded_chunk.size() != chunk_original_size)
+                if (decoded_chunks[i].size() != descriptors[i].original_size)
                 {
-                    set_error(
-                        error,
-                        "RIPC chunk output size mismatch.");
-                    output.clear();
+                    set_error(error, "RIPC chunk decompression did not complete.");
                     return false;
                 }
+            }
 
+            output.reserve(expected_size);
+
+            for (const Bytes& decoded_chunk : decoded_chunks)
+            {
                 output.insert(
                     output.end(),
                     decoded_chunk.begin(),
                     decoded_chunk.end());
-
-                chunk_position += chunk_compressed_size;
             }
 
-            if (chunk_position != payload.size() ||
-                output.size() != expected_size)
-            {
-                set_error(
-                    error,
-                    "RIPC chunked output size mismatch.");
-                output.clear();
-                return false;
-            }
-
-            return true;
+            return output.size() == expected_size;
         }
 
         if ((flags &
