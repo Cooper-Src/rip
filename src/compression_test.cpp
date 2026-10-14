@@ -74,12 +74,13 @@ bool test_auto_selects_smallest(
 {
     constexpr std::array<
         rip::compression::CompressionLevel,
-        3>
+        4>
         levels =
     {
         rip::compression::CompressionLevel::Fast,
         rip::compression::CompressionLevel::Balanced,
-        rip::compression::CompressionLevel::Maximum
+        rip::compression::CompressionLevel::Maximum,
+        rip::compression::CompressionLevel::Ultra
     };
 
     std::size_t smallest_size =
@@ -159,7 +160,7 @@ bool test_auto_selects_smallest(
 
     std::cout
         << name
-        << ": PASS (best of 3 profiles, "
+        << ": PASS (best of 4 profiles, "
         << automatic.size()
         << " bytes)\n";
 
