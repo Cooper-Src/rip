@@ -31,7 +31,7 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 - Command-line utility and Qt-based graphical archive manager.
 - Windows ARM64 and x64 builds, plus Linux ARM64 and x86-64 builds.
 - Adaptive per-file STORE, DEFLATE, and RIPC compression.
-- RIPC Ultra profile with a full-window match-chain search; Auto picks the smallest result across all four profiles.
+- RIPC Ultra profile with a full-window match-chain search; Auto picks the smallest result across all four profiles, trading extra CPU time for a chance at a better ratio.
 - Parallel decompression of RIPC's independent chunks and bulk expansion of overlapping LZ matches.
 - CRC32 checksums and archive integrity testing.
 - Browse the filesystem and open/browse RIP archives in the GUI.
@@ -44,14 +44,14 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 
 Get the latest packages from the [GitHub Releases page](https://github.com/Cooper-Src/rip/releases).
 
-The current release is **v1.1.6**:
+The current release is **v1.1.7**:
 
 | Platform | Download |
 | --- | --- |
-| Windows ARM64 | [rip-1.1.6-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.6/rip-1.1.6-windows-arm64.zip) |
-| Windows x64 | [rip-1.1.6-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.6/rip-1.1.6-windows-x64.zip) |
-| Linux ARM64 / AArch64 | [rip-1.1.6-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.6/rip-1.1.6-linux-aarch64.tar.gz) |
-| Linux x64 / x86-64 | [rip-1.1.6-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.6/rip-1.1.6-linux-x86_64.tar.gz) |
+| Windows ARM64 | [rip-1.1.7-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.7/rip-1.1.7-windows-arm64.zip) |
+| Windows x64 | [rip-1.1.7-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.7/rip-1.1.7-windows-x64.zip) |
+| Linux ARM64 / AArch64 | [rip-1.1.7-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.7/rip-1.1.7-linux-aarch64.tar.gz) |
+| Linux x64 / x86-64 | [rip-1.1.7-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.7/rip-1.1.7-linux-x86_64.tar.gz) |
 
 ### Windows
 
@@ -218,7 +218,7 @@ GitHub Actions also builds the GUI frontend, runs the compression tests, and ver
 
 ## RIPC compression
 
-RIPC combines LZ-style match finding with token encoding and Huffman entropy coding. Files smaller than 2 MiB keep the single-stream layout and automatic mode tests the Fast, Balanced, and Maximum profiles. For larger inputs, RIPC v11 splits data into independent 1 MiB chunks and compresses them concurrently, using up to the number of logical CPU threads reported by the operating system (bounded by the chunk count). Auto mode still compares all three profiles per chunk; explicit profiles only run their selected search. Chunks are reassembled in source order for deterministic decoding, though independent boundaries can slightly reduce compression ratio for some inputs. The parallel chunk encoder is included in v1.1.6.
+RIPC combines LZ-style match finding with token encoding and Huffman entropy coding. Files smaller than 2 MiB keep the single-stream layout and automatic mode tests the Fast, Balanced, and Maximum profiles. For larger inputs, RIPC v11 splits data into independent 1 MiB chunks and compresses them concurrently, using up to the number of logical CPU threads reported by the operating system (bounded by the chunk count). Auto mode still compares all three profiles per chunk; explicit profiles only run their selected search. Chunks are reassembled in source order for deterministic decoding, though independent boundaries can slightly reduce compression ratio for some inputs. The parallel chunk encoder is included in v1.1.7.
 
 RIP then compares the chosen RIPC result with DEFLATE and STORE for each file. RIPC is **not guaranteed to be smaller or faster for every input**; if another representation is smaller, RIP stores that instead. The stream format is now v11 for this parallel-chunk encoder, so older RIP binaries that do not support v11 cannot decompress newly created RIPC v11 streams. The codec is still under active development.
 
@@ -233,7 +233,7 @@ The format, GUI, and codec are still evolving; do not assume permanent compatibi
 Release versions are coordinated by `CMakeLists.txt` and `RELEASE_VERSION`. To prepare a new release:
 
 1. Update the project version in `CMakeLists.txt`.
-2. Set `RELEASE_VERSION` to the matching tag (for example, `v1.1.6`).
+2. Set `RELEASE_VERSION` to the matching tag (for example, `v1.1.7`).
 3. Commit both version changes to `main`.
 
 After the commit passes the RIPC test workflow, GitHub Actions creates the matching version tag and dispatches the full platform release workflow. That workflow rebuilds the frontend, builds and tests Windows ARM64/x64 and Linux ARM64/x86-64, packages the platform artifacts, and publishes the GitHub Release.
