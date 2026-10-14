@@ -200,6 +200,9 @@ bool test_ultra_finds_deep_dictionary_match()
         input.end(),
         repeated_prefix_run,
         static_cast<std::byte>('A'));
+    // Break the all-A run so a nearby overlapping match cannot span
+    // into the copied source block.
+    input.push_back(static_cast<std::byte>('Z'));
     input.insert(input.end(), source.begin(), source.end());
 
     std::vector<std::byte> maximum;
