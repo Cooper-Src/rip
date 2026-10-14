@@ -454,12 +454,13 @@ std::cout
 
 const std::array<
     rip::compression::CompressionLevel,
-    3>
+    4>
     levels =
 {
     rip::compression::CompressionLevel::Fast,
     rip::compression::CompressionLevel::Balanced,
-    rip::compression::CompressionLevel::Maximum
+    rip::compression::CompressionLevel::Maximum,
+    rip::compression::CompressionLevel::Ultra
 };
 
 for (const auto level : levels)
