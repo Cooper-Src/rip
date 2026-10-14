@@ -168,6 +168,94 @@ bool test_auto_selects_smallest(
 }
 
 
+bool test_ultra_finds_deep_dictionary_match()
+{
+    /*
+     * Keep more than 16,384 identical four-byte hashes in the 64 KiB
+     * window, but make their fifth byte differ from a later long match.
+     * Maximum stops before reaching the older occurrence; Ultra's full
+     * chain search should find it and produce a smaller stream.
+     */
+    constexpr std::size_t source_size = 8192;
+    constexpr std::size_t repeated_prefix_run = 20'000;
+
+    std::vector<std::byte> source(source_size);
+    source[0] = static_cast<std::byte>('A');
+    source[1] = static_cast<std::byte>('A');
+    source[2] = static_cast<std::byte>('A');
+    source[3] = static_cast<std::byte>('A');
+    source[4] = static_cast<std::byte>('B');
+
+    std::mt19937 generator(0x554c5452u);
+
+    for (std::size_t i = 5; i < source.size(); ++i)
+    {
+        source[i] = static_cast<std::byte>(generator() & 0xffu);
+    }
+
+    std::vector<std::byte> input;
+    input.reserve(source_size * 2 + repeated_prefix_run);
+    input.insert(input.end(), source.begin(), source.end());
+    input.insert(
+        input.end(),
+        repeated_prefix_run,
+        static_cast<std::byte>('A'));
+    input.insert(input.end(), source.begin(), source.end());
+
+    std::vector<std::byte> maximum;
+    std::vector<std::byte> ultra;
+    std::vector<std::byte> automatic;
+    std::vector<std::byte> restored;
+    std::string error;
+
+    if (!rip::compression::compress(
+            input,
+            maximum,
+            &error,
+            rip::compression::CompressionLevel::Maximum) ||
+        !rip::compression::compress(
+            input,
+            ultra,
+            &error,
+            rip::compression::CompressionLevel::Ultra))
+    {
+        std::cerr << "Ultra deep-match compression failed: " << error << '\n';
+        return false;
+    }
+
+    if (ultra.size() >= maximum.size())
+    {
+        std::cerr
+            << "Ultra did not improve the deep-dictionary fixture ("
+            << ultra.size() << " vs " << maximum.size() << " bytes)\n";
+        return false;
+    }
+
+    if (!rip::compression::decompress(ultra, restored, &error) ||
+        restored != input)
+    {
+        std::cerr << "Ultra deep-match round trip failed: " << error << '\n';
+        return false;
+    }
+
+    if (!rip::compression::compress(input, automatic, &error) ||
+        automatic.size() > ultra.size())
+    {
+        std::cerr
+            << "Auto did not retain the smallest deep-match result: "
+            << error << '\n';
+        return false;
+    }
+
+    std::cout
+        << "Ultra deep dictionary match: PASS (Maximum "
+        << maximum.size() << " -> Ultra "
+        << ultra.size() << " -> Auto "
+        << automatic.size() << " bytes)\n";
+
+    return true;
+}
+
 bool test_parallel_chunked()
 {
     constexpr std::size_t input_size =
@@ -427,7 +515,8 @@ int main()
         return 1;
     }
 
-if (!test_parallel_chunked())
+if (!test_parallel_chunked() ||
+    !test_ultra_finds_deep_dictionary_match())
 {
     return 1;
 }
