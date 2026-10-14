@@ -258,7 +258,9 @@ namespace rip::compression
                     ? "RIPC Fast"
                     : compression_level == CompressionLevel::Balanced
                           ? "RIPC Balanced"
-                          : "RIPC Maximum";
+                          : compression_level == CompressionLevel::Maximum
+                                ? "RIPC Maximum"
+                                : "RIPC Ultra";
 
             constexpr std::size_t progress_interval =
                 1024 * 1024;
@@ -299,7 +301,7 @@ namespace rip::compression
                 nice_match_length = 16 * 1024;
                 lazy_lookahead = 2;
             }
-            else
+            else if (level <= 9)
             {
                 /*
                  * Maximum is deliberately size-first. It searches
@@ -309,6 +311,19 @@ namespace rip::compression
                  * or two literals unlock a substantially better match.
                  */
                 max_chain_length = 16'384;
+                nice_match_length = MAX_MATCH_LENGTH;
+                lazy_lookahead = 4;
+            }
+            else
+            {
+                /*
+                 * Ultra performs a near-exhaustive traversal of the
+                 * complete 64 KiB dictionary chain. It is intended for
+                 * users who want Auto to have one more opportunity to
+                 * find a smaller stream, even when that costs CPU time.
+                 * Auto still keeps the smallest completed result.
+                 */
+                max_chain_length = WINDOW_SIZE;
                 nice_match_length = MAX_MATCH_LENGTH;
                 lazy_lookahead = 4;
             }
@@ -2153,11 +2168,12 @@ namespace rip::compression
             error->clear();
         }
 
-        constexpr std::array<CompressionLevel, 3> profiles =
+        constexpr std::array<CompressionLevel, 4> profiles =
         {
             CompressionLevel::Fast,
             CompressionLevel::Balanced,
-            CompressionLevel::Maximum
+            CompressionLevel::Maximum,
+            CompressionLevel::Ultra
         };
 
         // Retain the original single-stream layout for small inputs.

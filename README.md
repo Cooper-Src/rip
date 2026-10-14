@@ -21,7 +21,7 @@
 
 RIP is a C++23 archive utility with a command-line interface and a graphical archive manager built using Qt 6 and Qt WebEngine. It creates, lists, tests, and extracts its own `.rip` archive format.
 
-RIP includes **RIPC**, a custom LZ-style compression codec with token encoding and Huffman entropy coding. During archive creation, each file is evaluated using STORE, DEFLATE, and RIPC, and the archive stores the smallest completed representation. RIPC's automatic mode compares its supported search profiles and keeps the smallest resulting stream.
+RIP includes **RIPC**, a custom LZ-style compression codec with token encoding and Huffman entropy coding. During archive creation, each file is evaluated using STORE, DEFLATE, and RIPC, and the archive stores the smallest completed representation. RIPC's automatic mode compares Fast, Balanced, Maximum, and Ultra search profiles and keeps the smallest resulting stream. Ultra searches the full 64 KiB match dictionary and may take longer in exchange for another chance to improve the ratio.
 
 > **Project status:** RIP and the `.rip` format are actively developed. The format and codec may change as the project evolves.
 
@@ -31,6 +31,7 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 - Command-line utility and Qt-based graphical archive manager.
 - Windows ARM64 and x64 builds, plus Linux ARM64 and x86-64 builds.
 - Adaptive per-file STORE, DEFLATE, and RIPC compression.
+- RIPC Ultra profile with a full-window match-chain search; Auto picks the smallest result across all four profiles.
 - Parallel decompression of RIPC's independent chunks and bulk expansion of overlapping LZ matches.
 - CRC32 checksums and archive integrity testing.
 - Browse the filesystem and open/browse RIP archives in the GUI.
