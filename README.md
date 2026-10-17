@@ -77,9 +77,9 @@ The Windows packages are designed to run without a separate Qt installation. For
 
 ### Linux
 
-For Ubuntu/Debian, install the matching `.deb` package with `sudo apt install ./rip_1.1.12_amd64.deb` (use `rip_1.1.12_arm64.deb` on ARM64). For Fedora/RHEL-compatible distributions, install the matching `.rpm` with `sudo dnf install ./rip-1.1.12-1.x86_64.rpm` (use the `aarch64` package on ARM64). These packages add the CLI to `/usr/bin`, a RIP Archive Toolkit entry to the desktop application menu, and the branded app icon. Qt runtime dependencies are declared in the packages and are installed through the distribution's package manager.
+For Ubuntu 24.04+ and compatible Debian-based systems, install the matching `.deb` package with `sudo apt install ./rip_1.1.12_amd64.deb` (use `rip_1.1.12_arm64.deb` on ARM64). For Fedora and compatible RPM-based distributions, install the matching `.rpm` with `sudo dnf install ./rip-1.1.12-1.x86_64.rpm` (use the `aarch64` package on ARM64). These packages add the CLI to `/usr/bin`, a RIP Archive Toolkit entry to the desktop application menu, and the branded app icon. Runtime dependencies are declared in the package metadata, including Qt 6 WebEngine; your distribution must provide a compatible Qt 6 runtime.
 
-Portable tarballs are also provided for both architectures. Extract the archive and run `./bin/rip` for CLI use or `./bin/rip-gui` for the GUI. Keep the extracted directory structure intact so the launcher can find its GUI runtime assets.
+Portable tarballs are also provided for both architectures. Extract the archive, enter the versioned directory it creates, then run `./usr/bin/rip` for CLI use or `./usr/bin/rip-gui` for the GUI. Keep the extracted directory structure intact so the launcher can find its GUI runtime assets.
 
 ## Command-line usage
 
@@ -129,7 +129,7 @@ The CLI commands currently available are `create`, `list`, `test`, `extract`, an
 
 ## GUI
 
-Run `rip-gui.exe` on Windows, or `./rip-gui` on Linux when its Qt runtime dependencies are installed.
+Run `rip-gui.exe` on Windows, or `rip-gui` on Linux after installing a package. From an extracted Linux tarball, launch `./usr/bin/rip-gui` inside the versioned directory.
 
 The GUI is a file-manager-style interface. It can browse the filesystem, open and browse RIP archives, create archives, extract and test them, view archive information, and delete selected files or archives.
 
