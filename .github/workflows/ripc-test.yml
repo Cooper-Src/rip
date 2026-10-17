@@ -187,9 +187,11 @@ jobs:
           tarball="$(find build -maxdepth 1 -name 'rip-*-linux-*.tar.gz' -print -quit)"
           test -n "$deb" && test -n "$rpm_pkg" && test -n "$tarball"
           dpkg-deb --info "$deb"
+          dpkg-deb -f "$deb" Depends | grep -F 'libqt6webenginecore6'
           dpkg-deb --contents "$deb" | grep -F './usr/bin/rip'
           dpkg-deb --contents "$deb" | grep -F './usr/share/applications/rip.desktop'
           rpm -qip "$rpm_pkg"
+          rpm -qpR "$rpm_pkg" | grep -F 'libQt6WebEngineCore.so.6'
           rpm -qpl "$rpm_pkg" | grep -F '/usr/bin/rip'
           tar -tzf "$tarball" | grep -F 'bin/rip'
 
