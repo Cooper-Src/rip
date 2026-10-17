@@ -65,7 +65,7 @@ Each Windows ZIP contains:
 - `gui/` — the GUI's web assets.
 - Bundled Qt libraries, plugins, and Qt WebEngine runtime files.
 
-The Windows packages are designed to run without a separate Qt installation. For a guided setup, download the architecture-matched `*-setup.exe` installer. It installs per-user under `%LOCALAPPDATA%\\Programs\\RIP`, creates a Start Menu shortcut, and offers an optional desktop shortcut. The ZIP remains available as a portable option: extract it and launch `rip-gui.exe` or use `rip.exe` from a terminal.
+The Windows packages are designed to run without a separate Qt installation. For a guided setup, download the architecture-matched `*-setup.exe` installer. It installs per-user under `%LOCALAPPDATA%\Programs\RIP`, creates a Start Menu shortcut, and offers an optional desktop shortcut. The ZIP remains available as a portable option: extract it and launch `rip-gui.exe` or use `rip.exe` from a terminal.
 
 ### Linux
 
