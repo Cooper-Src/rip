@@ -490,34 +490,69 @@ namespace rip::compression
                         ++length;
                     }
 
-                    if (
-                        length > best_length ||
-                        (
-                            length == best_length &&
-                            length >= MIN_MATCH_LENGTH &&
-                            (
-                                (
-                                    distance ==
-                                        last_match_distance &&
-                                    best_distance !=
-                                        last_match_distance
-                                ) ||
-                                (
-                                    distance <
-                                    best_distance
-                                )
-                            )
-                        )
-                    )
+                    bool better_match = false;
+
+                    if (level > 9)
                     {
-                        best_length =
-                            length;
+                        /*
+                         * Ultra estimates the encoded cost, not just the
+                         * raw length. Reusing the previous distance avoids
+                         * two distance bytes, while lengths above 257 need
+                         * two extra length bytes. This can make a slightly
+                         * shorter repeat-distance match cheaper overall.
+                         */
+                        const std::int64_t candidate_score =
+                            static_cast<std::int64_t>(length) -
+                            (distance == last_match_distance ? 0 : 2) -
+                            (length > 257 ? 2 : 0);
 
-                        best_distance =
-                            distance;
+                        const std::int64_t best_score =
+                            best_length == 0
+                                ? std::numeric_limits<std::int64_t>::min()
+                                : static_cast<std::int64_t>(best_length) -
+                                      (best_distance == last_match_distance ? 0 : 2) -
+                                      (best_length > 257 ? 2 : 0);
 
-                        if (length >=
-                                nice_match_length ||
+                        better_match =
+                            candidate_score > best_score ||
+                            (
+                                candidate_score == best_score &&
+                                (
+                                    (
+                                        distance == last_match_distance &&
+                                        best_distance != last_match_distance
+                                    ) ||
+                                    (
+                                        (distance == last_match_distance) ==
+                                            (best_distance == last_match_distance) &&
+                                        distance < best_distance
+                                    )
+                                )
+                            );
+                    }
+                    else
+                    {
+                        better_match =
+                            length > best_length ||
+                            (
+                                length == best_length &&
+                                length >= MIN_MATCH_LENGTH &&
+                                (
+                                    (
+                                        distance == last_match_distance &&
+                                        best_distance != last_match_distance
+                                    ) ||
+                                    distance < best_distance
+                                )
+                            );
+                    }
+
+                    if (better_match)
+                    {
+                        best_length = length;
+                        best_distance = distance;
+
+                        if (length >= nice_match_length ||
                             length == maximum)
                         {
                             break;
