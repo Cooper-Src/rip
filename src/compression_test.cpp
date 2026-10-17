@@ -446,13 +446,31 @@ bool test_parallel_chunked()
         return false;
     }
 
-    if (compressed.size() < 16 ||
+    if (compressed.size() < 20 ||
         static_cast<std::uint8_t>(compressed[4]) !=
             rip::compression::RIPC_VERSION ||
         static_cast<std::uint8_t>(compressed[5]) != 0x08)
     {
         std::cerr
             << "Large input did not use the expected RIPC v11 chunked stream\n";
+        return false;
+    }
+
+    const std::uint32_t chunk_count =
+        static_cast<std::uint32_t>(
+            static_cast<std::uint8_t>(compressed[16])) |
+        (static_cast<std::uint32_t>(
+             static_cast<std::uint8_t>(compressed[17])) << 8u) |
+        (static_cast<std::uint32_t>(
+             static_cast<std::uint8_t>(compressed[18])) << 16u) |
+        (static_cast<std::uint32_t>(
+             static_cast<std::uint8_t>(compressed[19])) << 24u);
+
+    if (chunk_count != 2)
+    {
+        std::cerr
+            << "Expected two 2 MiB chunks for the 3 MiB test input, got "
+            << chunk_count << '\n';
         return false;
     }
 
