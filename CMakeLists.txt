@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(rip
-    VERSION 1.1.11
+    VERSION 1.1.12
     LANGUAGES CXX
 )
 
@@ -402,18 +402,46 @@ if(WIN32)
 
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 
+    # The GUI resolves its web assets relative to its executable. Keep the
+    # executable and assets together under /usr/lib/rip, with a small launcher
+    # in /usr/bin for terminals and desktop environments.
     install(
-        TARGETS
-            rip
-            rip-gui
-        RUNTIME DESTINATION .
+        TARGETS rip
+        RUNTIME DESTINATION bin
+    )
+
+    install(
+        TARGETS rip-gui
+        RUNTIME DESTINATION lib/rip
     )
 
     install(
         DIRECTORY
             "${CMAKE_CURRENT_SOURCE_DIR}/gui/dist/"
         DESTINATION
-            gui
+            lib/rip/gui
+    )
+
+    install(
+        PROGRAMS
+            "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/rip-gui"
+        DESTINATION
+            bin
+    )
+
+    install(
+        FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/rip.desktop"
+        DESTINATION
+            share/applications
+    )
+
+    install(
+        FILES
+            "${CMAKE_CURRENT_SOURCE_DIR}/branding/rip-mark.svg"
+        DESTINATION
+            share/icons/hicolor/scalable/apps
+        RENAME rip.svg
     )
 
     set(RIP_RELEASE_VERSION "${PROJECT_VERSION}")
@@ -437,12 +465,18 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         )
     endif()
 
-    set(CPACK_GENERATOR "TGZ")
+    set(CPACK_GENERATOR "DEB;RPM;TGZ")
     set(CPACK_PACKAGE_NAME "rip")
     set(CPACK_PACKAGE_VENDOR "Cooper-Src")
+    set(CPACK_PACKAGE_CONTACT "Cooper-Src")
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/usr")
     set(
         CPACK_PACKAGE_DESCRIPTION_SUMMARY
-        "RIP custom archive utility and GUI for Linux"
+        "RIP Archive Toolkit - archive utility and graphical archive manager"
+    )
+    set(
+        CPACK_PACKAGE_DESCRIPTION
+        "RIP Archive Toolkit creates, inspects, tests, and extracts .rip archives. Includes a command-line utility and a Qt-based graphical archive manager."
     )
     set(
         CPACK_PACKAGE_VERSION
@@ -452,6 +486,28 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         CPACK_PACKAGE_FILE_NAME
         "rip-${RIP_RELEASE_VERSION}-linux-${CMAKE_SYSTEM_PROCESSOR}"
     )
+
+    # Use standard package-manager filenames such as rip_1.2.3_amd64.deb
+    # and rip-1.2.3-1.x86_64.rpm.
+    set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Cooper-Src")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "utils")
+    set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+    set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/Cooper-Src/rip")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "arm64")
+    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+    endif()
+
+    set(CPACK_RPM_FILE_NAME "RPM-DEFAULT")
+    set(CPACK_RPM_PACKAGE_RELEASE "1")
+    set(CPACK_RPM_PACKAGE_LICENSE "MIT")
+    set(CPACK_RPM_PACKAGE_GROUP "Applications/Archiving")
+    set(CPACK_RPM_PACKAGE_URL "https://github.com/Cooper-Src/rip")
+    set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
 
     include(CPack)
 
