@@ -259,6 +259,139 @@ bool test_ultra_finds_deep_dictionary_match()
     return true;
 }
 
+bool test_ultra_prefers_cheaper_repeat_distance()
+{
+    /*
+     * Set up three occurrences of a long prefix. The immediately preceding
+     * occurrence has the previous match distance but ends one byte earlier;
+     * an older occurrence matches one byte more but needs a new distance.
+     * Ultra should account for the two-byte distance field instead of always
+     * taking the longest match.
+     */
+    constexpr std::size_t block_size = 8192;
+    constexpr std::size_t motif_offset = 64;
+    constexpr std::size_t shared_length = 128;
+    constexpr std::size_t target_tail_size = 512;
+
+    std::mt19937 generator(0x44535443u);
+    std::vector<std::byte> older(block_size);
+    std::vector<std::byte> repeated(block_size);
+
+    for (auto& value : older)
+    {
+        value = static_cast<std::byte>(generator() & 0xffu);
+    }
+
+    for (auto& value : repeated)
+    {
+        value = static_cast<std::byte>(generator() & 0xffu);
+    }
+
+    for (std::size_t i = 0; i < shared_length; ++i)
+    {
+        const std::byte value =
+            static_cast<std::byte>(generator() & 0xffu);
+        older[motif_offset + i] = value;
+        repeated[motif_offset + i] = value;
+    }
+
+    older[motif_offset + shared_length] = static_cast<std::byte>('B');
+    repeated[motif_offset + shared_length] = static_cast<std::byte>('A');
+
+    const std::byte older_next =
+        older[motif_offset + shared_length + 1];
+    const std::byte target_next =
+        older_next == static_cast<std::byte>(0xA5)
+            ? static_cast<std::byte>(0x5A)
+            : static_cast<std::byte>(0xA5);
+
+    std::vector<std::byte> input;
+    input.reserve(
+        block_size * 3 +
+        motif_offset +
+        shared_length +
+        2 +
+        target_tail_size);
+
+    input.insert(input.end(), older.begin(), older.end());
+    input.insert(input.end(), repeated.begin(), repeated.end());
+    input.insert(input.end(), repeated.begin(), repeated.end());
+
+    std::vector<std::byte> gap(motif_offset);
+    for (auto& value : gap)
+    {
+        value = static_cast<std::byte>(generator() & 0xffu);
+    }
+
+    if (gap.front() == repeated.front())
+    {
+        gap.front() ^= static_cast<std::byte>(0x01);
+    }
+
+    input.insert(input.end(), gap.begin(), gap.end());
+    input.insert(
+        input.end(),
+        repeated.begin() + static_cast<std::ptrdiff_t>(motif_offset),
+        repeated.begin() + static_cast<std::ptrdiff_t>(motif_offset + shared_length));
+    input.push_back(static_cast<std::byte>('B'));
+    input.push_back(target_next);
+
+    for (std::size_t i = 0; i < target_tail_size; ++i)
+    {
+        input.push_back(static_cast<std::byte>(generator() & 0xffu));
+    }
+
+    std::vector<std::byte> maximum;
+    std::vector<std::byte> ultra;
+    std::vector<std::byte> automatic;
+    std::vector<std::byte> restored;
+    std::string error;
+
+    if (!rip::compression::compress(
+            input,
+            maximum,
+            &error,
+            rip::compression::CompressionLevel::Maximum) ||
+        !rip::compression::compress(
+            input,
+            ultra,
+            &error,
+            rip::compression::CompressionLevel::Ultra))
+    {
+        std::cerr << "Repeat-distance compression failed: " << error << '\n';
+        return false;
+    }
+
+    if (ultra.size() >= maximum.size())
+    {
+        std::cerr
+            << "Ultra did not reduce repeat-distance fixture size (Maximum "
+            << maximum.size() << " vs Ultra " << ultra.size() << " bytes)\n";
+        return false;
+    }
+
+    if (!rip::compression::decompress(ultra, restored, &error) ||
+        restored != input)
+    {
+        std::cerr << "Repeat-distance round trip failed: " << error << '\n';
+        return false;
+    }
+
+    if (!rip::compression::compress(input, automatic, &error) ||
+        automatic.size() > ultra.size())
+    {
+        std::cerr << "Auto lost the repeat-distance result: " << error << '\n';
+        return false;
+    }
+
+    std::cout
+        << "Ultra repeat-distance cost: PASS (Maximum "
+        << maximum.size() << " -> Ultra " << ultra.size()
+        << " -> Auto " << automatic.size() << " bytes)\n";
+
+    return true;
+}
+
 bool test_parallel_chunked()
 {
     constexpr std::size_t input_size =
@@ -313,13 +446,31 @@ bool test_parallel_chunked()
         return false;
     }
 
-    if (compressed.size() < 16 ||
+    if (compressed.size() < 20 ||
         static_cast<std::uint8_t>(compressed[4]) !=
             rip::compression::RIPC_VERSION ||
         static_cast<std::uint8_t>(compressed[5]) != 0x08)
     {
         std::cerr
             << "Large input did not use the expected RIPC v11 chunked stream\n";
+        return false;
+    }
+
+    const std::uint32_t chunk_count =
+        static_cast<std::uint32_t>(
+            static_cast<std::uint8_t>(compressed[16])) |
+        (static_cast<std::uint32_t>(
+             static_cast<std::uint8_t>(compressed[17])) << 8u) |
+        (static_cast<std::uint32_t>(
+             static_cast<std::uint8_t>(compressed[18])) << 16u) |
+        (static_cast<std::uint32_t>(
+             static_cast<std::uint8_t>(compressed[19])) << 24u);
+
+    if (chunk_count != 2)
+    {
+        std::cerr
+            << "Expected two 2 MiB chunks for the 3 MiB test input, got "
+            << chunk_count << '\n';
         return false;
     }
 
@@ -519,7 +670,8 @@ int main()
     }
 
 if (!test_parallel_chunked() ||
-    !test_ultra_finds_deep_dictionary_match())
+    !test_ultra_finds_deep_dictionary_match() ||
+    !test_ultra_prefers_cheaper_repeat_distance())
 {
     return 1;
 }
