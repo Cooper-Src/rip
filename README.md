@@ -21,7 +21,7 @@
 
 RIP is a C++23 archive utility with a command-line interface and a graphical archive manager built using Qt 6 and Qt WebEngine. It creates, lists, tests, and extracts its own `.rip` archive format.
 
-RIP includes **RIPC**, a custom LZ-style compression codec with token encoding and Huffman entropy coding. During archive creation, each file is evaluated using STORE, DEFLATE, and RIPC, and the archive stores the smallest completed representation. RIPC's automatic mode compares Fast, Balanced, Maximum, and Ultra search profiles and keeps the smallest resulting stream. The match finder uses a fixed-endian multiplicative hash to reduce four-byte candidate hashing overhead without changing the RIPC v11 stream format. Ultra searches the full 64 KiB match dictionary and may take longer in exchange for another chance to improve the ratio.
+RIP includes **RIPC**, a custom LZ-style compression codec with token encoding and Huffman entropy coding. During archive creation, each file is evaluated using STORE, DEFLATE, and RIPC, and the archive stores the smallest completed representation. RIPC's automatic mode compares Fast, Balanced, Maximum, and Ultra search profiles and keeps the smallest resulting stream. The matcher uses a fixed-endian multiplicative hash; Ultra estimates encoded distance and extended-length costs when choosing matches. Large inputs use independent 2 MiB chunks to reduce repeated per-chunk entropy-coding overhead, without changing the RIPC v11 stream format.
 
 > **Project status:** RIP and the `.rip` format are actively developed. The format and codec may change as the project evolves.
 
@@ -32,7 +32,8 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 - Windows ARM64 and x64 builds, plus Linux ARM64 and x86-64 builds.
 - Adaptive per-file STORE, DEFLATE, and RIPC compression.
 - Faster RIPC four-byte match hashing to reduce encoder overhead without changing the RIPC v11 stream format.
-- RIPC Ultra profile with a full-window match-chain search; Auto picks the smallest result across all four profiles, trading extra CPU time for a chance at a better ratio.
+- Cost-aware RIPC Ultra match selection, weighing distance reuse and extended-length overhead rather than blindly choosing only the longest match.
+- 2 MiB parallel RIPC v11 chunks for lower repeated entropy-coding overhead; Auto still selects the smallest result across all four profiles.
 - Parallel decompression of RIPC's independent chunks and bulk expansion of overlapping LZ matches.
 - CRC32 checksums and archive integrity testing.
 - Browse the filesystem and open/browse RIP archives in the GUI.
@@ -45,16 +46,16 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 
 Get the latest packages from the [GitHub Releases page](https://github.com/Cooper-Src/rip/releases).
 
-The current release is **v1.1.9**:
+The current release is **v1.1.10**:
 
 | Platform | Download |
 | --- | --- |
-| Windows ARM64 | [rip-1.1.9-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-arm64.zip) |
-| Windows ARM64 installer | [rip-1.1.9-windows-arm64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-arm64-setup.exe) |
-| Windows x64 | [rip-1.1.9-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-x64.zip) |
-| Windows x64 installer | [rip-1.1.9-windows-x64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-x64-setup.exe) |
-| Linux ARM64 / AArch64 | [rip-1.1.9-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-linux-aarch64.tar.gz) |
-| Linux x64 / x86-64 | [rip-1.1.9-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-linux-x86_64.tar.gz) |
+| Windows ARM64 | [rip-1.1.10-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.10/rip-1.1.10-windows-arm64.zip) |
+| Windows ARM64 installer | [rip-1.1.10-windows-arm64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.10/rip-1.1.10-windows-arm64-setup.exe) |
+| Windows x64 | [rip-1.1.10-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.10/rip-1.1.10-windows-x64.zip) |
+| Windows x64 installer | [rip-1.1.10-windows-x64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.10/rip-1.1.10-windows-x64-setup.exe) |
+| Linux ARM64 / AArch64 | [rip-1.1.10-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.10/rip-1.1.10-linux-aarch64.tar.gz) |
+| Linux x64 / x86-64 | [rip-1.1.10-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.10/rip-1.1.10-linux-x86_64.tar.gz) |
 
 ### Windows
 
@@ -221,7 +222,7 @@ GitHub Actions builds the GUI frontend, runs the compression tests and CLI archi
 
 ## RIPC compression
 
-RIPC combines LZ-style match finding with token encoding and Huffman entropy coding. Files smaller than 2 MiB keep the single-stream layout. Automatic mode tests Fast, Balanced, Maximum, and Ultra profiles. For larger inputs, RIPC v11 splits data into independent 2 MiB chunks and compresses them concurrently, using up to the number of logical CPU threads reported by the operating system (bounded by the chunk count). Auto mode compares all four profiles per chunk; explicit profiles only run their selected search. Chunks are reassembled in source order for deterministic decoding, though independent boundaries can slightly reduce compression ratio for some inputs. The parallel chunk encoder is included in v1.1.7.
+RIPC combines LZ-style match finding with token encoding and Huffman entropy coding. Inputs up to 2 MiB keep the single-stream layout. Automatic mode tests Fast, Balanced, Maximum, and Ultra profiles. Larger inputs split into independent 2 MiB chunks and compress them concurrently, using up to the number of logical CPU threads reported by the operating system (bounded by the chunk count). Auto mode compares all four profiles per chunk; explicit profiles only run their selected search. Larger chunks reduce repeated per-chunk headers and entropy-coding overhead, although any independent chunk boundary can miss a match that crosses it. Ultra accounts for the two-byte cost of a new match distance and the extended-length field when choosing between candidates. The 2 MiB chunk strategy and cost-aware Ultra matcher are included in v1.1.10.
 
 RIP then compares the chosen RIPC result with DEFLATE and STORE for each file. RIPC is **not guaranteed to be smaller or faster for every input**; if another representation is smaller, RIP stores that instead. The stream format is now v11 for this parallel-chunk encoder, so older RIP binaries that do not support v11 cannot decompress newly created RIPC v11 streams. The codec is still under active development.
 
@@ -236,7 +237,7 @@ The format, GUI, and codec are still evolving; do not assume permanent compatibi
 Release versions are coordinated by `CMakeLists.txt` and `RELEASE_VERSION`. To prepare a new release:
 
 1. Update the project version in `CMakeLists.txt`.
-2. Set `RELEASE_VERSION` to the matching tag (for example, `v1.1.9`).
+2. Set `RELEASE_VERSION` to the matching tag (for example, `v1.1.10`).
 3. Commit both version changes to `main`.
 
 After the commit passes the RIPC test workflow, GitHub Actions creates the matching version tag and dispatches the full platform release workflow. That workflow rebuilds the frontend, builds and tests Windows ARM64/x64 and Linux ARM64/x86-64, packages the platform artifacts, and publishes the GitHub Release.

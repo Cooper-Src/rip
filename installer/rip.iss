@@ -1,10 +1,10 @@
 ; RIP Windows installer
 ; Compile with:
-;   ISCC.exe /DAppVersion=1.1.9 /DAppArch=x64 /DArchitectureAllowed=x64compatible /DArchitectureInstallMode=x64compatible installer\rip.iss
+;   ISCC.exe /DAppVersion=1.1.10 /DAppArch=x64 /DArchitectureAllowed=x64compatible /DArchitectureInstallMode=x64compatible installer\rip.iss
 ; Or pass arm64 for both architecture directives to build the native ARM64 installer.
 
 #ifndef AppVersion
-#define AppVersion "1.1.9"
+#define AppVersion "1.1.10"
 #endif
 
 #ifndef AppArch
