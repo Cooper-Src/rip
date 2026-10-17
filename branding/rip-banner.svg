@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">RIP — Archive Toolkit</title>
+  <desc id="desc">A modern archive utility for packing, protecting and unpacking files.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0B1220"/><stop offset="1" stop-color="#1D2A40"/></linearGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#D8FFA0"/><stop offset="1" stop-color="#A7E64A"/></linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#DDE7F5" stroke-opacity=".055"/></pattern>
+  </defs>
+  <rect width="1200" height="360" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="360" rx="28" fill="url(#grid)"/>
+  <circle cx="1060" cy="54" r="180" fill="#C7F36B" opacity=".055"/>
+  <circle cx="1002" cy="334" r="220" fill="#4B88C7" opacity=".08"/>
+  <g transform="translate(72 72) scale(2.8)">
+    <rect width="64" height="64" rx="16" fill="#101828" stroke="#FFFFFF" stroke-opacity=".15"/>
+    <path d="M13.5 19 32 10.5 50.5 19 32 27.5Z" fill="#F4F7FB"/>
+    <path d="M13.5 24.5 32 33 50.5 24.5V43L32 52 13.5 43Z" fill="#253247" stroke="#F4F7FB" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M13.8 31 32 39.5 50.2 31" fill="none" stroke="url(#lime)" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M13.8 39 32 47.5 50.2 39" fill="none" stroke="#F4F7FB" stroke-opacity=".92" stroke-width="3.2" stroke-linejoin="round"/>
+    <path d="M32 10.5V18" stroke="#101828" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
+  <text x="310" y="160" fill="#F4F7FB" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="86" font-weight="850" letter-spacing="-4">RIP</text>
+  <rect x="314" y="181" width="8" height="50" rx="4" fill="url(#lime)"/>
+  <text x="342" y="203" fill="#C7F36B" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="20" font-weight="750" letter-spacing="5">ARCHIVE TOOLKIT</text>
+  <text x="314" y="269" fill="#C5D0DF" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="23" font-weight="450">Pack. Protect. Unpack.</text>
+  <text x="314" y="307" fill="#92A2B9" font-family="Inter,Segoe UI,Arial,sans-serif" font-size="16">A custom archive format and compression engine for Windows and Linux.</text>
+  <g transform="translate(952 96)" opacity=".78">
+    <path d="M0 36 78 0 156 36 78 72Z" fill="#23334B" stroke="#B8C6D9" stroke-opacity=".55" stroke-width="2"/>
+    <path d="M0 54 78 90 156 54V139L78 181 0 139Z" fill="#152238" stroke="#B8C6D9" stroke-opacity=".55" stroke-width="2"/>
+    <path d="M2 89 78 124 154 89" fill="none" stroke="#C7F36B" stroke-width="5"/>
+    <path d="M2 117 78 152 154 117" fill="none" stroke="#E8EEF6" stroke-opacity=".72" stroke-width="4"/>
+  </g>
+  <rect x="72" y="316" width="86" height="4" rx="2" fill="#C7F36B"/>
+</svg>

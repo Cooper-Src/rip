@@ -341,8 +341,12 @@ app.innerHTML = `
 
             <div class="titlebar-left">
 
-                <div class="rip-title-icon">
-                    <span>RIP</span>
+                <div class="rip-brand-lockup" aria-label="RIP Archive Toolkit">
+                    <img class="rip-title-mark" src="/rip-mark.svg" alt="" aria-hidden="true">
+                    <div class="rip-brand-copy">
+                        <span class="rip-brand-name">RIP</span>
+                        <span class="rip-brand-subtitle">ARCHIVE TOOLKIT</span>
+                    </div>
                 </div>
 
                 <div

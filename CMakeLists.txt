@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(rip
-    VERSION 1.1.10
+    VERSION 1.1.11
     LANGUAGES CXX
 )
 
@@ -10,6 +10,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+
+if(WIN32)
+    enable_language(RC)
+endif()
 
 find_package(Threads REQUIRED)
 
@@ -86,6 +91,7 @@ endif()
 add_executable(
     rip-gui
     src/gui_main.cpp
+    src/rip-gui.qrc
     src/archive.cpp
     src/crc32.cpp
     src/compression.cpp
@@ -94,6 +100,16 @@ add_executable(
 )
 
 if(WIN32)
+    file(TO_CMAKE_PATH
+        "${CMAKE_CURRENT_SOURCE_DIR}/branding/rip.ico"
+        RIP_APP_ICON_PATH
+    )
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/windows/rip-gui.rc.in"
+        "${CMAKE_CURRENT_BINARY_DIR}/rip-gui.rc"
+        @ONLY
+    )
+    target_sources(rip-gui PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/rip-gui.rc")
     set_target_properties(
         rip-gui
         PROPERTIES
@@ -365,7 +381,7 @@ if(WIN32)
     set(CPACK_PACKAGE_VENDOR "Cooper-Src")
     set(
         CPACK_PACKAGE_DESCRIPTION_SUMMARY
-        "RIP custom archive utility and GUI for Windows"
+        "RIP Archive Toolkit - custom archive utility and GUI for Windows"
     )
     set(
         CPACK_PACKAGE_VERSION

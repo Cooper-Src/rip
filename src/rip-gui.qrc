@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/branding">
+        <file alias="rip-mark.svg">../branding/rip-mark.svg</file>
+    </qresource>
+</RCC>

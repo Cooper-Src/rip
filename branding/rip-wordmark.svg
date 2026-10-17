@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 76" role="img" aria-labelledby="title desc">
+  <title id="title">RIP Archive Toolkit</title>
+  <desc id="desc">RIP's geometric archive mark with a bold wordmark and lime accent.</desc>
+  <defs><style>.word{font-family:Inter,Segoe UI,Arial,sans-serif;font-weight:850;letter-spacing:-2px}.sub{font-family:Inter,Segoe UI,Arial,sans-serif;font-weight:700;letter-spacing:3.1px}</style></defs>
+  <g transform="translate(2 6)">
+    <rect width="64" height="64" rx="16" fill="#101828"/>
+    <path d="M13.5 19 32 10.5 50.5 19 32 27.5Z" fill="#F4F7FB"/>
+    <path d="M13.5 24.5 32 33 50.5 24.5V43L32 52 13.5 43Z" fill="#253247" stroke="#F4F7FB" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M13.8 31 32 39.5 50.2 31" fill="none" stroke="#C7F36B" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M13.8 39 32 47.5 50.2 39" fill="none" stroke="#F4F7FB" stroke-opacity=".92" stroke-width="3.2" stroke-linejoin="round"/>
+    <path d="M32 10.5V18" stroke="#101828" stroke-width="2.2" stroke-linecap="round"/>
+  </g>
+  <text x="83" y="47" class="word" font-size="43" fill="#101828">RIP</text>
+  <rect x="184" y="17" width="4" height="42" rx="2" fill="#C7F36B"/>
+  <text x="201" y="34" class="sub" font-size="10.5" fill="#596579">ARCHIVE</text>
+  <text x="201" y="50" class="sub" font-size="10.5" fill="#596579">TOOLKIT</text>
+</svg>

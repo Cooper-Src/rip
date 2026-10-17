@@ -7,15 +7,18 @@
     color: #111;
     background: #f3f3f3;
 
-    --titlebar: #f3f3f3;
-    --toolbar: #f4f4f4;
+    --brand-ink: #101828;
+    --brand-slate: #253247;
+    --brand-lime: #c7f36b;
+    --titlebar: #f8fafc;
+    --toolbar: #f4f6f9;
     --white: #ffffff;
-    --border: #d6d6d6;
-    --border-dark: #bdbdbd;
-    --text: #111111;
-    --muted: #555555;
-    --hover: #eaf2fb;
-    --selected: #cfe4f8;
+    --border: #d6dce5;
+    --border-dark: #b8c2d0;
+    --text: #111827;
+    --muted: #596579;
+    --hover: #eff6df;
+    --selected: #edf5df;
 
     --columns:
         163px
@@ -88,7 +91,7 @@ button:focus-visible {
     justify-content: space-between;
 
     background: var(--titlebar);
-    border-bottom: 1px solid #dddddd;
+    border-bottom: 1px solid #dce2ea;
 }
 
 .titlebar-left {
@@ -99,23 +102,43 @@ button:focus-visible {
     height: 100%;
 }
 
-.rip-title-icon {
+.rip-brand-lockup {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 7px;
+    flex: 0 0 auto;
+    height: 28px;
+    margin: 0 12px 0 10px;
+    padding-right: 13px;
+    border-right: 1px solid #dfe5ed;
+}
 
-    width: 25px;
-    height: 25px;
+.rip-title-mark {
+    display: block;
+    flex: 0 0 auto;
+    width: 28px;
+    height: 28px;
+}
 
-    margin-left: 11px;
-    margin-right: 9px;
+.rip-brand-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    line-height: 1;
+}
 
-    background: #20252b;
+.rip-brand-name {
+    color: var(--brand-ink);
+    font-size: 12px;
+    font-weight: 850;
+    letter-spacing: 0.09em;
+}
 
-    color: #ffffff;
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: -0.03em;
+.rip-brand-subtitle {
+    color: #657287;
+    font-size: 6px;
+    font-weight: 800;
+    letter-spacing: 0.13em;
 }
 
 .titlebar-path {
@@ -278,8 +301,8 @@ button:focus-visible {
 }
 
 .tool:hover {
-    background: #e8eef5;
-    border-color: #ccd7e2;
+    background: var(--hover);
+    border-color: #d8e6ba;
 }
 
 .tool-icon {
@@ -558,11 +581,12 @@ button:focus-visible {
 }
 
 .file-row:hover {
-    background: #f5f9fd;
+    background: #f6f9ef;
 }
 
 .file-row.selected {
     background: var(--selected);
+    box-shadow: inset 3px 0 var(--brand-lime);
 }
 
 .cell {
@@ -881,8 +905,8 @@ button:disabled:hover {
 
 .dialog-field select:focus,
 .dialog-field input:focus {
-    border-color: #4d86c5;
-    outline: 1px solid #9bbfe4;
+    border-color: #8cab52;
+    outline: 1px solid #c7f36b;
 }
 
 .preset-description {
@@ -948,13 +972,12 @@ button:disabled:hover {
 }
 
 .dialog-button.primary {
-    border-color: #3478bd;
-
-    background: #dcecfb;
+    border-color: #9dbb61;
+    background: #eaf6d0;
 }
 
 .dialog-button.primary:hover {
-    background: #cce2f6;
+    background: #def0b7;
 }
 
 /* -------------------------------------------------------------------------- */
