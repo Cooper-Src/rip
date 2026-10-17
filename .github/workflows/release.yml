@@ -169,6 +169,89 @@ jobs:
           path: build/rip-*-windows-*.zip
           if-no-files-found: error
 
+  windows_installers:
+    name: Build Windows installers
+    needs:
+      - windows
+    runs-on: windows-2025
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name || github.ref }}
+
+      - name: Download Windows x64 package
+        uses: actions/download-artifact@v4
+        with:
+          name: rip-windows-x64
+          path: artifacts/windows-x64
+
+      - name: Download Windows ARM64 package
+        uses: actions/download-artifact@v4
+        with:
+          name: rip-windows-ARM64
+          path: artifacts/windows-arm64
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile x64 and ARM64 installers
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name || github.ref_name }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = $env:RELEASE_TAG -replace '^v', ''
+
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$iscc) {
+            $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($command) { $iscc = $command.Source }
+          }
+          if (!$iscc) {
+            throw "Inno Setup Compiler (ISCC.exe) was not found after installation."
+          }
+
+          foreach ($arch in @("x64", "arm64")) {
+            $zipPath = Join-Path "artifacts/windows-$arch" "rip-$version-windows-$arch.zip"
+            if (!(Test-Path $zipPath)) {
+              throw "Windows package is missing: $zipPath"
+            }
+
+            $stage = Join-Path $PWD "build/package/rip-$version-windows-$arch"
+            Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Path $stage -Force | Out-Null
+            Expand-Archive -LiteralPath $zipPath -DestinationPath $stage -Force
+
+            $allowedArchitecture = if ($arch -eq "arm64") { "arm64" } else { "x64compatible" }
+            Write-Host "Compiling RIP $version Windows $arch installer from $stage"
+            & $iscc "/DAppVersion=$version" "/DAppArch=$arch" "/DArchitectureAllowed=$allowedArchitecture" "/DArchitectureInstallMode=$allowedArchitecture" "installer/rip.iss"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Inno Setup failed to compile the $arch installer (exit code $LASTEXITCODE)."
+            }
+
+            $setup = Join-Path $PWD "build/installer/rip-$version-windows-$arch-setup.exe"
+            if (!(Test-Path $setup)) {
+              throw "Expected installer was not created: $setup"
+            }
+            Write-Host "Created $setup"
+          }
+
+      - name: Upload Windows installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: rip-windows-installers
+          path: build/installer/rip-*-windows-*-setup.exe
+          if-no-files-found: error
+
   linux:
     name: Build Linux ${{ matrix.arch }}
 
@@ -246,6 +329,7 @@ jobs:
 
     needs:
       - windows
+      - windows_installers
       - linux
 
     runs-on: ubuntu-24.04
@@ -264,3 +348,4 @@ jobs:
           files: |
             release/**/*.zip
             release/**/*.tar.gz
+            release/**/*.exe
