@@ -7,6 +7,7 @@ on:
     paths:
       - "RELEASE_VERSION"
       - "installer/**"
+      - "packaging/linux/**"
       - "branding/**"
       - "gui/public/**"
       - "src/rip-gui.qrc"
@@ -36,6 +37,7 @@ on:
     paths:
       - "RELEASE_VERSION"
       - "installer/**"
+      - "packaging/linux/**"
       - "branding/**"
       - "gui/public/**"
       - "src/rip-gui.qrc"
@@ -138,6 +140,60 @@ jobs:
             if (!(Test-Path $setup)) { throw "Expected installer output missing: $setup" }
             Write-Host "Compiled $setup"
           }
+
+  linux-packages:
+    name: Build and inspect Linux packages
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build build-essential git dpkg-dev rpm qt6-base-dev qt6-webengine-dev qt6-webchannel-dev
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+
+      - name: Build GUI frontend
+        working-directory: gui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build and test
+        run: |
+          set -euo pipefail
+          RELEASE_TAG="$(tr -d '[:space:]' < RELEASE_VERSION)"
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRIP_PACKAGE_VERSION="$RELEASE_TAG"
+          cmake --build build --parallel
+          ./build/rip-token-codec-test
+          ./build/rip-token-huffman-test
+          ./build/rip-compression-test
+          cmake --build build --target package
+
+      - name: Verify all Linux package formats
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb="$(find build -maxdepth 1 -name 'rip_*.deb' -print -quit)"
+          rpm_pkg="$(find build -maxdepth 1 -name 'rip-*.rpm' -print -quit)"
+          tarball="$(find build -maxdepth 1 -name 'rip-*-linux-*.tar.gz' -print -quit)"
+          test -n "$deb" && test -n "$rpm_pkg" && test -n "$tarball"
+          dpkg-deb --info "$deb"
+          dpkg-deb -f "$deb" Depends | grep -F 'libqt6webenginecore6'
+          dpkg-deb --contents "$deb" | grep -F './usr/bin/rip'
+          dpkg-deb --contents "$deb" | grep -F './usr/share/applications/rip.desktop'
+          rpm -qip "$rpm_pkg"
+          rpm -qpR "$rpm_pkg" | grep -F 'libQt6WebEngineCore.so.6'
+          rpm -qpl "$rpm_pkg" | grep -F '/usr/bin/rip'
+          tar -tzf "$tarball" | grep -F 'bin/rip'
 
   compression:
     runs-on: ubuntu-latest

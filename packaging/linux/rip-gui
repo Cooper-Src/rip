@@ -1,0 +1,11 @@
+#!/bin/sh
+set -eu
+
+# In a system install this resolves to /usr/lib/rip/rip-gui. The same
+# relative lookup also keeps extracted portable tarballs runnable.
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -x "$SCRIPT_DIR/../lib/rip/rip-gui" ]; then
+    exec "$SCRIPT_DIR/../lib/rip/rip-gui" "$@"
+fi
+
+exec /usr/lib/rip/rip-gui "$@"
