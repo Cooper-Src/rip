@@ -42,23 +42,27 @@ RIP uses a compact geometric archive mark with a carbon-and-slate base and a lim
 - Browse the filesystem and open/browse RIP archives in the GUI.
 - Create, extract, test, inspect, and delete archives through the GUI.
 - Archive creation dialog with file-level progress and a second byte-level progress bar. The byte bar reports the current reading/compression phase so it can continue moving while a large file is still being processed.
-- Separate, architecture-specific Windows and Linux release packages, including guided Inno Setup installers for Windows x64 and ARM64.
+- Separate, architecture-specific Windows and Linux release packages, including guided Inno Setup installers for Windows x64 and ARM64 plus native Debian and RPM packages for Linux x86-64 and ARM64.
 - GitHub Actions builds, compression tests, archive round-trip tests, and release packaging.
 
 ## Download
 
 Get the latest packages from the [GitHub Releases page](https://github.com/Cooper-Src/rip/releases).
 
-The current release is **v1.1.11**:
+The current release is **v1.1.12**:
 
 | Platform | Download |
 | --- | --- |
-| Windows ARM64 | [rip-1.1.11-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.11/rip-1.1.11-windows-arm64.zip) |
-| Windows ARM64 installer | [rip-1.1.11-windows-arm64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.11/rip-1.1.11-windows-arm64-setup.exe) |
-| Windows x64 | [rip-1.1.11-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.11/rip-1.1.11-windows-x64.zip) |
-| Windows x64 installer | [rip-1.1.11-windows-x64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.11/rip-1.1.11-windows-x64-setup.exe) |
-| Linux ARM64 / AArch64 | [rip-1.1.11-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.11/rip-1.1.11-linux-aarch64.tar.gz) |
-| Linux x64 / x86-64 | [rip-1.1.11-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.11/rip-1.1.11-linux-x86_64.tar.gz) |
+| Windows ARM64 | [rip-1.1.12-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-arm64.zip) |
+| Windows ARM64 installer | [rip-1.1.12-windows-arm64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-arm64-setup.exe) |
+| Windows x64 | [rip-1.1.12-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-x64.zip) |
+| Windows x64 installer | [rip-1.1.12-windows-x64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-x64-setup.exe) |
+| Linux ARM64 / AArch64 (Debian/Ubuntu) | [rip_1.1.12_arm64.deb](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip_1.1.12_arm64.deb) |
+| Linux x64 / x86-64 (Debian/Ubuntu) | [rip_1.1.12_amd64.deb](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip_1.1.12_amd64.deb) |
+| Linux ARM64 / AArch64 (Fedora/RHEL) | [rip-1.1.12-1.aarch64.rpm](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-1.aarch64.rpm) |
+| Linux x64 / x86-64 (Fedora/RHEL) | [rip-1.1.12-1.x86_64.rpm](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-1.x86_64.rpm) |
+| Linux ARM64 portable | [rip-1.1.12-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-linux-aarch64.tar.gz) |
+| Linux x64 portable | [rip-1.1.12-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-linux-x86_64.tar.gz) |
 
 ### Windows
 
@@ -73,9 +77,9 @@ The Windows packages are designed to run without a separate Qt installation. For
 
 ### Linux
 
-Each Linux tarball contains the command-line tool, Qt GUI executable, and GUI assets. The GUI requires compatible Qt 6 runtime libraries, including Qt WebEngine and Qt WebChannel, to be installed by the system package manager.
+For Ubuntu/Debian, install the matching `.deb` package with `sudo apt install ./rip_1.1.12_amd64.deb` (use `rip_1.1.12_arm64.deb` on ARM64). For Fedora/RHEL-compatible distributions, install the matching `.rpm` with `sudo dnf install ./rip-1.1.12-1.x86_64.rpm` (use the `aarch64` package on ARM64). These packages add the CLI to `/usr/bin`, a RIP Archive Toolkit entry to the desktop application menu, and the branded app icon. Qt runtime dependencies are declared in the packages and are installed through the distribution's package manager.
 
-Extract the package, then launch `./rip` for CLI use or `./rip-gui` for the GUI.
+Portable tarballs are also provided for both architectures. Extract the archive and run `./bin/rip` for CLI use or `./bin/rip-gui` for the GUI. Keep the extracted directory structure intact so the launcher can find its GUI runtime assets.
 
 ## Command-line usage
 
