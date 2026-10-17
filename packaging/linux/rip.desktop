@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=RIP Archive Toolkit
+GenericName=Archive Manager
+Comment=Create, inspect, test, and extract RIP archives
+Exec=rip-gui
+Icon=rip
+Terminal=false
+Categories=Utility;Archiving;FileTools;
+StartupNotify=true
