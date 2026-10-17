@@ -38,21 +38,23 @@ RIP includes **RIPC**, a custom LZ-style compression codec with token encoding a
 - Browse the filesystem and open/browse RIP archives in the GUI.
 - Create, extract, test, inspect, and delete archives through the GUI.
 - Archive creation dialog with file-level progress and a second byte-level progress bar. The byte bar reports the current reading/compression phase so it can continue moving while a large file is still being processed.
-- Separate, architecture-specific release packages for Windows ARM64, Windows x64, Linux ARM64, and Linux x86-64.
+- Separate, architecture-specific Windows and Linux release packages, including guided Inno Setup installers for Windows x64 and ARM64.
 - GitHub Actions builds, compression tests, archive round-trip tests, and release packaging.
 
 ## Download
 
 Get the latest packages from the [GitHub Releases page](https://github.com/Cooper-Src/rip/releases).
 
-The current release is **v1.1.8**:
+The current release is **v1.1.9**:
 
 | Platform | Download |
 | --- | --- |
-| Windows ARM64 | [rip-1.1.8-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.8/rip-1.1.8-windows-arm64.zip) |
-| Windows x64 | [rip-1.1.8-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.8/rip-1.1.8-windows-x64.zip) |
-| Linux ARM64 / AArch64 | [rip-1.1.8-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.8/rip-1.1.8-linux-aarch64.tar.gz) |
-| Linux x64 / x86-64 | [rip-1.1.8-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.8/rip-1.1.8-linux-x86_64.tar.gz) |
+| Windows ARM64 | [rip-1.1.9-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-arm64.zip) |
+| Windows ARM64 installer | [rip-1.1.9-windows-arm64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-arm64-setup.exe) |
+| Windows x64 | [rip-1.1.9-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-x64.zip) |
+| Windows x64 installer | [rip-1.1.9-windows-x64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-windows-x64-setup.exe) |
+| Linux ARM64 / AArch64 | [rip-1.1.9-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-linux-aarch64.tar.gz) |
+| Linux x64 / x86-64 | [rip-1.1.9-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.9/rip-1.1.9-linux-x86_64.tar.gz) |
 
 ### Windows
 
@@ -63,7 +65,7 @@ Each Windows ZIP contains:
 - `gui/` — the GUI's web assets.
 - Bundled Qt libraries, plugins, and Qt WebEngine runtime files.
 
-The Windows release packages are designed to run without a separate Qt installation. Extract the ZIP and launch `rip-gui.exe` or use `rip.exe` from a terminal.
+The Windows packages are designed to run without a separate Qt installation. For a guided setup, download the architecture-matched `*-setup.exe` installer. It installs per-user under `%LOCALAPPDATA%\Programs\RIP`, creates a Start Menu shortcut, and offers an optional desktop shortcut. The ZIP remains available as a portable option: extract it and launch `rip-gui.exe` or use `rip.exe` from a terminal.
 
 ### Linux
 
@@ -215,7 +217,7 @@ cmake --build build-linux --target rip-token-codec-test rip-token-huffman-test r
 ./build-linux/rip-compression-test
 ```
 
-GitHub Actions also builds the GUI frontend, runs the compression tests, and verifies CLI archive creation, listing, testing, extraction, and round-trip file contents before publishing a release.
+GitHub Actions builds the GUI frontend, runs the compression tests and CLI archive round-trip checks, compiles both Windows installer architectures with Inno Setup, and publishes the resulting installers and portable packages in each release.
 
 ## RIPC compression
 
@@ -234,7 +236,7 @@ The format, GUI, and codec are still evolving; do not assume permanent compatibi
 Release versions are coordinated by `CMakeLists.txt` and `RELEASE_VERSION`. To prepare a new release:
 
 1. Update the project version in `CMakeLists.txt`.
-2. Set `RELEASE_VERSION` to the matching tag (for example, `v1.1.7`).
+2. Set `RELEASE_VERSION` to the matching tag (for example, `v1.1.9`).
 3. Commit both version changes to `main`.
 
 After the commit passes the RIPC test workflow, GitHub Actions creates the matching version tag and dispatches the full platform release workflow. That workflow rebuilds the frontend, builds and tests Windows ARM64/x64 and Linux ARM64/x86-64, packages the platform artifacts, and publishes the GitHub Release.
