@@ -6,6 +6,8 @@ on:
       - main
     paths:
       - "RELEASE_VERSION"
+      - "installer/**"
+      - ".github/workflows/release.yml"
       - "include/rip/compression.hpp"
       - "include/rip/token_codec.hpp"
       - "include/rip/token_huffman.hpp"
@@ -28,6 +30,8 @@ on:
   pull_request:
     paths:
       - "RELEASE_VERSION"
+      - "installer/**"
+      - ".github/workflows/release.yml"
       - "include/rip/compression.hpp"
       - "include/rip/token_codec.hpp"
       - "include/rip/token_huffman.hpp"
@@ -71,6 +75,59 @@ jobs:
       - name: Build GUI frontend
         working-directory: gui
         run: npm run build
+
+  installer-compile:
+    name: Compile Windows installers
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Compile both installer architectures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $versionLine = Select-String -Path "CMakeLists.txt" -Pattern '^\s*VERSION\s+(\d+\.\d+\.\d+)' | Select-Object -First 1
+          if (!$versionLine) { throw "Unable to read project version from CMakeLists.txt." }
+          $version = $versionLine.Matches[0].Groups[1].Value
+
+          $candidates = @(
+            "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+            "${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 7\ISCC.exe"
+          )
+          $iscc = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$iscc) {
+            $command = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($command) { $iscc = $command.Source }
+          }
+          if (!$iscc) { throw "Inno Setup Compiler (ISCC.exe) was not found." }
+
+          foreach ($arch in @("x64", "arm64")) {
+            $stage = Join-Path $PWD "build/package/rip-$version-windows-$arch"
+            New-Item -ItemType Directory -Path (Join-Path $stage "gui") -Force | Out-Null
+
+            # Minimal fixture files verify script syntax and both architecture configurations.
+            Set-Content -Path (Join-Path $stage "rip.exe") -Value "RIP installer fixture" -Encoding ascii
+            Set-Content -Path (Join-Path $stage "rip-gui.exe") -Value "RIP GUI installer fixture" -Encoding ascii
+            Set-Content -Path (Join-Path $stage "gui/index.html") -Value "<!doctype html><title>RIP</title>" -Encoding utf8
+            Set-Content -Path (Join-Path $stage "README-Windows.txt") -Value "RIP installer fixture" -Encoding utf8
+
+            $allowedArchitecture = if ($arch -eq "arm64") { "arm64" } else { "x64compatible" }
+            & $iscc "/DAppVersion=$version" "/DAppArch=$arch" "/DArchitectureAllowed=$allowedArchitecture" "/DArchitectureInstallMode=$allowedArchitecture" "installer/rip.iss"
+            if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed for $arch." }
+
+            $setup = Join-Path $PWD "build/installer/rip-$version-windows-$arch-setup.exe"
+            if (!(Test-Path $setup)) { throw "Expected installer output missing: $setup" }
+            Write-Host "Compiled $setup"
+          }
 
   compression:
     runs-on: ubuntu-latest
