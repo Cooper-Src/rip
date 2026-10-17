@@ -7,6 +7,11 @@ on:
     paths:
       - "RELEASE_VERSION"
       - "installer/**"
+      - "branding/**"
+      - "gui/public/**"
+      - "src/rip-gui.qrc"
+      - "src/windows/**"
+      - "README.md"
       - ".github/workflows/release.yml"
       - "include/rip/compression.hpp"
       - "include/rip/token_codec.hpp"
@@ -31,6 +36,11 @@ on:
     paths:
       - "RELEASE_VERSION"
       - "installer/**"
+      - "branding/**"
+      - "gui/public/**"
+      - "src/rip-gui.qrc"
+      - "src/windows/**"
+      - "README.md"
       - ".github/workflows/release.yml"
       - "include/rip/compression.hpp"
       - "include/rip/token_codec.hpp"

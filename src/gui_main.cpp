@@ -5,6 +5,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QIcon>
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QMimeDatabase>
@@ -548,7 +549,7 @@ namespace
         }
 
         g_window->setWindowTitle(
-            QStringLiteral("RIP - ") +
+            QStringLiteral("RIP Archive Toolkit - ") +
             qstring_from_wstring(text));
     }
 
@@ -1843,7 +1844,10 @@ int main(
         QStringLiteral("RIP"));
 
     QApplication::setApplicationDisplayName(
-        QStringLiteral("RIP Archive Utility"));
+        QStringLiteral("RIP Archive Toolkit"));
+
+    application.setWindowIcon(
+        QIcon(QStringLiteral(":/branding/rip-mark.svg")));
 
     QApplication::setOrganizationName(
         QStringLiteral("Cooper-Src"));
@@ -1866,7 +1870,7 @@ int main(
         600);
 
     window->setWindowTitle(
-        QStringLiteral("RIP - Loading..."));
+        QStringLiteral("RIP Archive Toolkit - Loading..."));
 
     QWebEngineProfile *profile =
         QWebEngineProfile::defaultProfile();
