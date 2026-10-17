@@ -80,11 +80,13 @@ namespace rip::compression
         constexpr std::uint8_t FLAG_CHUNKED =
             0x08;
 
+        // Larger chunks share the per-chunk entropy-coding overhead over
+        // more source data, improving ratios while preserving RIPC v11 framing.
         constexpr std::size_t PARALLEL_CHUNK_SIZE =
-            1024 * 1024;
+            2 * 1024 * 1024;
 
         constexpr std::size_t PARALLEL_MIN_SIZE =
-            2 * PARALLEL_CHUNK_SIZE;
+            2 * 1024 * 1024;
 
         using Bytes =
             std::vector<std::byte>;
@@ -2217,7 +2219,7 @@ namespace rip::compression
         };
 
         // Retain the original single-stream layout for small inputs.
-        if (input.size() < PARALLEL_MIN_SIZE)
+        if (input.size() <= PARALLEL_MIN_SIZE)
         {
             if (level != CompressionLevel::Auto)
             {
