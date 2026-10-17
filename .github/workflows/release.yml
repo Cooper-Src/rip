@@ -283,7 +283,9 @@ jobs:
             git \
             qt6-base-dev \
             qt6-webengine-dev \
-            qt6-webchannel-dev
+            qt6-webchannel-dev \
+            dpkg-dev \
+            rpm
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -321,7 +323,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rip-linux-${{ matrix.arch }}
-          path: build/rip-*-linux-*.tar.gz
+          path: build/rip*
           if-no-files-found: error
 
   release:
@@ -348,4 +350,6 @@ jobs:
           files: |
             release/**/*.zip
             release/**/*.tar.gz
+            release/**/*.deb
+            release/**/*.rpm
             release/**/*.exe
