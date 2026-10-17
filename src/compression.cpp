@@ -208,22 +208,27 @@ namespace rip::compression
         std::uint32_t hash4(
             const std::byte *data)
         {
+            /*
+             * Pack the four-byte sequence in a fixed byte order, then use a
+             * multiplicative mixer. The LZ matcher only needs a well-spread
+             * 18-bit bucket index; selecting the high bits avoids FNV's weaker
+             * low-bit distribution and replaces four serial hash rounds with
+             * one multiply and one shift/xor mix.
+             */
             std::uint32_t hash =
-                2166136261u;
+                (static_cast<std::uint32_t>(
+                     static_cast<std::uint8_t>(data[0])) << 24u) |
+                (static_cast<std::uint32_t>(
+                     static_cast<std::uint8_t>(data[1])) << 16u) |
+                (static_cast<std::uint32_t>(
+                     static_cast<std::uint8_t>(data[2])) << 8u) |
+                static_cast<std::uint32_t>(
+                    static_cast<std::uint8_t>(data[3]));
 
-            for (unsigned int i = 0;
-                 i < 4;
-                 ++i)
-            {
-                hash ^=
-                    static_cast<std::uint8_t>(
-                        data[i]);
+            hash *= 0x9E3779B1u;
+            hash ^= hash >> 16u;
 
-                hash *=
-                    16777619u;
-            }
-
-            return hash & HASH_MASK;
+            return (hash >> (32u - HASH_BITS)) & HASH_MASK;
         }
 
         struct LzToken
