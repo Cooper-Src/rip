@@ -170,10 +170,9 @@ jobs:
           npm run build
 
       - name: Build and test
-        env:
-          RELEASE_TAG: ${{ github.event_name == 'pull_request' && 'v1.1.12' || github.ref_name }}
         run: |
           set -euo pipefail
+          RELEASE_TAG="$(tr -d '[:space:]' < RELEASE_VERSION)"
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DRIP_PACKAGE_VERSION="$RELEASE_TAG"
           cmake --build build --parallel
           ./build/rip-token-codec-test
