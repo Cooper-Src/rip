@@ -147,7 +147,7 @@ int process_file(
 
 Bytes make_three_byte_marker_data()
 {
-    constexpr std::size_t record_count = 2'048;
+    constexpr std::size_t record_count = 4'096;
     constexpr std::size_t record_size = 64;
 
     Bytes data;
