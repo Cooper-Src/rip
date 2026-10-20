@@ -168,6 +168,73 @@ bool test_auto_selects_smallest(
 }
 
 
+bool test_three_byte_prefix_matches()
+{
+    /*
+     * Every 64-byte record starts with the same three-byte marker, but its
+     * fourth byte and payload differ. A four-byte matcher misses these
+     * matches. A three-byte matcher can encode later markers as repeat-distance
+     * tokens while leaving the otherwise random payload as literal runs.
+     */
+    constexpr std::size_t record_count = 4'096;
+    constexpr std::size_t record_size = 64;
+
+    std::vector<std::byte> input;
+    input.reserve(record_count * record_size);
+
+    std::mt19937 generator(0x33524950u);
+
+    for (std::size_t record = 0; record < record_count; ++record)
+    {
+        input.push_back(static_cast<std::byte>('R'));
+        input.push_back(static_cast<std::byte>('I'));
+        input.push_back(static_cast<std::byte>('P'));
+        input.push_back(static_cast<std::byte>(record & 0xffu));
+
+        for (std::size_t i = 4; i < record_size; ++i)
+        {
+            input.push_back(
+                static_cast<std::byte>(generator() & 0xffu));
+        }
+    }
+
+    std::vector<std::byte> compressed;
+    std::vector<std::byte> restored;
+    std::string error;
+
+    if (!rip::compression::compress(input, compressed, &error))
+    {
+        std::cerr << "Three-byte prefix compression failed: "
+                  << error << '\n';
+        return false;
+    }
+
+    constexpr std::size_t minimum_expected_saving = 1'024;
+    if (compressed.size() + minimum_expected_saving >= input.size())
+    {
+        std::cerr
+            << "Three-byte marker fixture did not compress as expected ("
+            << input.size() << " -> " << compressed.size() << " bytes)\n";
+        return false;
+    }
+
+    if (!rip::compression::decompress(compressed, restored, &error) ||
+        restored != input)
+    {
+        std::cerr << "Three-byte prefix round trip failed: "
+                  << error << '\n';
+        return false;
+    }
+
+    std::cout
+        << "Three-byte prefix matches: PASS ("
+        << input.size() << " -> " << compressed.size()
+        << " bytes, saved "
+        << (input.size() - compressed.size()) << " bytes)\n";
+
+    return true;
+}
+
 bool test_ultra_finds_deep_dictionary_match()
 {
     /*
@@ -669,7 +736,8 @@ int main()
         return 1;
     }
 
-if (!test_parallel_chunked() ||
+if (!test_three_byte_prefix_matches() ||
+    !test_parallel_chunked() ||
     !test_ultra_finds_deep_dictionary_match() ||
     !test_ultra_prefers_cheaper_repeat_distance())
 {

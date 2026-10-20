@@ -20,7 +20,7 @@
 
 RIP is a C++23 archive utility with a command-line interface and a graphical archive manager built using Qt 6 and Qt WebEngine. It creates, lists, tests, and extracts its own `.rip` archive format.
 
-RIP includes **RIPC**, a custom LZ-style compression codec with token encoding and Huffman entropy coding. During archive creation, each file is evaluated using STORE, DEFLATE, and RIPC, and the archive stores the smallest completed representation. RIPC's automatic mode compares Fast, Balanced, Maximum, and Ultra search profiles and keeps the smallest resulting stream. The matcher uses a fixed-endian multiplicative hash; Ultra estimates encoded distance and extended-length costs when choosing matches. Large inputs use independent 2 MiB chunks to reduce repeated per-chunk entropy-coding overhead, without changing the RIPC v11 stream format.
+RIP includes **RIPC**, a custom LZ-style compression codec with token encoding and Huffman entropy coding. During archive creation, each file is evaluated using STORE, DEFLATE, and RIPC, and the archive stores the smallest completed representation. RIPC's automatic mode compares Fast, Balanced, Maximum, and Ultra search profiles and keeps the smallest resulting stream. The matcher uses a fixed-endian multiplicative three-byte hash, allowing short repeated prefixes to be encoded even when the following byte differs; Ultra estimates encoded distance and extended-length costs when choosing matches. Large inputs use independent 2 MiB chunks to reduce repeated per-chunk entropy-coding overhead, without changing the RIPC v11 stream format.
 
 > **Project status:** RIP and the `.rip` format are actively developed. The format and codec may change as the project evolves.
 
@@ -34,7 +34,7 @@ RIP uses a compact geometric archive mark with a carbon-and-slate base and a lim
 - Command-line utility and Qt-based graphical archive manager.
 - Windows ARM64 and x64 builds, plus Linux ARM64 and x86-64 builds.
 - Adaptive per-file STORE, DEFLATE, and RIPC compression.
-- Faster RIPC four-byte match hashing to reduce encoder overhead without changing the RIPC v11 stream format.
+- Three-byte LZ prefix matching captures useful short matches even when the next byte differs, without changing the RIPC v11 decoder or stream format.
 - Cost-aware RIPC Ultra match selection, weighing distance reuse and extended-length overhead rather than blindly choosing only the longest match.
 - 2 MiB parallel RIPC v11 chunks for lower repeated entropy-coding overhead; Auto still selects the smallest result across all four profiles.
 - Parallel decompression of RIPC's independent chunks and bulk expansion of overlapping LZ matches.

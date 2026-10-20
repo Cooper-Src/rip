@@ -145,6 +145,33 @@ int process_file(
     return data;
 }
 
+Bytes make_three_byte_marker_data()
+{
+    constexpr std::size_t record_count = 4'096;
+    constexpr std::size_t record_size = 64;
+
+    Bytes data;
+    data.reserve(record_count * record_size);
+
+    std::mt19937 generator(0x33524950u);
+
+    for (std::size_t record = 0; record < record_count; ++record)
+    {
+        data.push_back(static_cast<std::byte>('R'));
+        data.push_back(static_cast<std::byte>('I'));
+        data.push_back(static_cast<std::byte>('P'));
+        data.push_back(static_cast<std::byte>(record & 0xffu));
+
+        for (std::size_t i = 4; i < record_size; ++i)
+        {
+            data.push_back(
+                static_cast<std::byte>(generator() & 0xffu));
+        }
+    }
+
+    return data;
+}
+
 Bytes make_random_data()
 {
     constexpr std::size_t size =
@@ -499,6 +526,10 @@ int main(
     run_case(
         "Synthetic: source code",
         make_source_code());
+
+    run_case(
+        "Synthetic: three-byte markers",
+        make_three_byte_marker_data());
 
     run_case(
         "Synthetic: random data",

@@ -207,25 +207,23 @@ namespace rip::compression
             return value;
         }
 
-        std::uint32_t hash4(
+        std::uint32_t hash3(
             const std::byte *data)
         {
             /*
-             * Pack the four-byte sequence in a fixed byte order, then use a
-             * multiplicative mixer. The LZ matcher only needs a well-spread
-             * 18-bit bucket index; selecting the high bits avoids FNV's weaker
-             * low-bit distribution and replaces four serial hash rounds with
-             * one multiply and one shift/xor mix.
+             * Hash the first three bytes in a fixed byte order. A three-byte
+             * prefix is enough to begin an LZ match; bytes after the prefix
+             * are checked by the matcher. This lets RIPC encode short matches
+             * when the following byte differs, while keeping the v11 token
+             * and stream formats unchanged.
              */
             std::uint32_t hash =
                 (static_cast<std::uint32_t>(
-                     static_cast<std::uint8_t>(data[0])) << 24u) |
+                     static_cast<std::uint8_t>(data[0])) << 16u) |
                 (static_cast<std::uint32_t>(
-                     static_cast<std::uint8_t>(data[1])) << 16u) |
-                (static_cast<std::uint32_t>(
-                     static_cast<std::uint8_t>(data[2])) << 8u) |
+                     static_cast<std::uint8_t>(data[1])) << 8u) |
                 static_cast<std::uint32_t>(
-                    static_cast<std::uint8_t>(data[3]));
+                    static_cast<std::uint8_t>(data[2]));
 
             hash *= 0x9E3779B1u;
             hash ^= hash >> 16u;
@@ -348,14 +346,13 @@ namespace rip::compression
             auto insert_position =
                 [&](std::size_t position)
             {
-                if (position + 3 >=
-                    input.size())
+                if (input.size() - position < MIN_MATCH_LENGTH)
                 {
                     return;
                 }
 
                 const std::uint32_t hash =
-                    hash4(
+                    hash3(
                         input.data() +
                         position);
 
@@ -373,8 +370,7 @@ namespace rip::compression
                 std::size_t best_length = 0;
                 std::size_t best_distance = 0;
 
-                if (position + 3 >=
-                    input.size())
+                if (input.size() - position < MIN_MATCH_LENGTH)
                 {
                     return std::pair{
                         best_length,
@@ -382,7 +378,7 @@ namespace rip::compression
                 }
 
                 const std::uint32_t hash =
-                    hash4(
+                    hash3(
                         input.data() +
                         position);
 
@@ -422,9 +418,7 @@ namespace rip::compression
                         input[candidate_position + 1] !=
                             input[position + 1] ||
                         input[candidate_position + 2] !=
-                            input[position + 2] ||
-                        input[candidate_position + 3] !=
-                            input[position + 3])
+                            input[position + 2])
                     {
                         candidate =
                             previous[candidate_position];
@@ -439,7 +433,7 @@ namespace rip::compression
                             input.size() -
                                 position);
 
-                    std::size_t length = 4;
+                    std::size_t length = MIN_MATCH_LENGTH;
 
                     /*
                      * Compare long matches a machine word at a time.
@@ -607,14 +601,13 @@ namespace rip::compression
                         temporary_position =
                             position + i;
 
-                    if (temporary_position + 3 >=
-                        input.size())
+                    if (input.size() - temporary_position < MIN_MATCH_LENGTH)
                     {
                         break;
                     }
 
                     const std::uint32_t hash =
-                        hash4(
+                        hash3(
                             input.data() +
                             temporary_position);
 
@@ -704,7 +697,7 @@ namespace rip::compression
                          skip <= lazy_lookahead;
                          ++skip)
                     {
-                        if (position + skip + 3 >=
+                        if (position + skip + 2 >=
                             input.size())
                         {
                             break;
