@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(rip
-    VERSION 1.1.12
+    VERSION 1.1.13
     LANGUAGES CXX
 )
 

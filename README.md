@@ -49,20 +49,20 @@ RIP uses a compact geometric archive mark with a carbon-and-slate base and a lim
 
 Get the latest packages from the [GitHub Releases page](https://github.com/Cooper-Src/rip/releases).
 
-The current release is **v1.1.12**:
+The current release is **v1.1.13**:
 
 | Platform | Download |
 | --- | --- |
-| Windows ARM64 | [rip-1.1.12-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-arm64.zip) |
-| Windows ARM64 installer | [rip-1.1.12-windows-arm64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-arm64-setup.exe) |
-| Windows x64 | [rip-1.1.12-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-x64.zip) |
-| Windows x64 installer | [rip-1.1.12-windows-x64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-windows-x64-setup.exe) |
-| Linux ARM64 / AArch64 (Debian/Ubuntu) | [rip_1.1.12_arm64.deb](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip_1.1.12_arm64.deb) |
-| Linux x64 / x86-64 (Debian/Ubuntu) | [rip_1.1.12_amd64.deb](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip_1.1.12_amd64.deb) |
-| Linux ARM64 / AArch64 (Fedora/RHEL) | [rip-1.1.12-1.aarch64.rpm](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-1.aarch64.rpm) |
-| Linux x64 / x86-64 (Fedora/RHEL) | [rip-1.1.12-1.x86_64.rpm](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-1.x86_64.rpm) |
-| Linux ARM64 portable | [rip-1.1.12-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-linux-aarch64.tar.gz) |
-| Linux x64 portable | [rip-1.1.12-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.12/rip-1.1.12-linux-x86_64.tar.gz) |
+| Windows ARM64 | [rip-1.1.13-windows-arm64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-windows-arm64.zip) |
+| Windows ARM64 installer | [rip-1.1.13-windows-arm64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-windows-arm64-setup.exe) |
+| Windows x64 | [rip-1.1.13-windows-x64.zip](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-windows-x64.zip) |
+| Windows x64 installer | [rip-1.1.13-windows-x64-setup.exe](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-windows-x64-setup.exe) |
+| Linux ARM64 / AArch64 (Debian/Ubuntu) | [rip_1.1.13_arm64.deb](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip_1.1.13_arm64.deb) |
+| Linux x64 / x86-64 (Debian/Ubuntu) | [rip_1.1.13_amd64.deb](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip_1.1.13_amd64.deb) |
+| Linux ARM64 / AArch64 (Fedora/RHEL) | [rip-1.1.13-1.aarch64.rpm](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-1.aarch64.rpm) |
+| Linux x64 / x86-64 (Fedora/RHEL) | [rip-1.1.13-1.x86_64.rpm](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-1.x86_64.rpm) |
+| Linux ARM64 portable | [rip-1.1.13-linux-aarch64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-linux-aarch64.tar.gz) |
+| Linux x64 portable | [rip-1.1.13-linux-x86_64.tar.gz](https://github.com/Cooper-Src/rip/releases/download/v1.1.13/rip-1.1.13-linux-x86_64.tar.gz) |
 
 ### Windows
 
@@ -77,7 +77,7 @@ The Windows packages are designed to run without a separate Qt installation. For
 
 ### Linux
 
-For Ubuntu 24.04+ and compatible Debian-based systems, install the matching `.deb` package with `sudo apt install ./rip_1.1.12_amd64.deb` (use `rip_1.1.12_arm64.deb` on ARM64). For Fedora and compatible RPM-based distributions, install the matching `.rpm` with `sudo dnf install ./rip-1.1.12-1.x86_64.rpm` (use the `aarch64` package on ARM64). These packages add the CLI to `/usr/bin`, a RIP Archive Toolkit entry to the desktop application menu, and the branded app icon. Runtime dependencies are declared in the package metadata, including Qt 6 WebEngine; your distribution must provide a compatible Qt 6 runtime.
+For Ubuntu 24.04+ and compatible Debian-based systems, install the matching `.deb` package with `sudo apt install ./rip_1.1.13_amd64.deb` (use `rip_1.1.13_arm64.deb` on ARM64). For Fedora and compatible RPM-based distributions, install the matching `.rpm` with `sudo dnf install ./rip-1.1.13-1.x86_64.rpm` (use the `aarch64` package on ARM64). These packages add the CLI to `/usr/bin`, a RIP Archive Toolkit entry to the desktop application menu, and the branded app icon. Runtime dependencies are declared in the package metadata, including Qt 6 WebEngine; your distribution must provide a compatible Qt 6 runtime.
 
 Portable tarballs are also provided for both architectures. Extract the archive, enter the versioned directory it creates, then run `./usr/bin/rip` for CLI use or `./usr/bin/rip-gui` for the GUI. Keep the extracted directory structure intact so the launcher can find its GUI runtime assets.
 
