@@ -176,7 +176,7 @@ bool test_three_byte_prefix_matches()
      * matches. A three-byte matcher can encode later markers as repeat-distance
      * tokens while leaving the otherwise random payload as literal runs.
      */
-    constexpr std::size_t record_count = 2'048;
+    constexpr std::size_t record_count = 4'096;
     constexpr std::size_t record_size = 64;
 
     std::vector<std::byte> input;
