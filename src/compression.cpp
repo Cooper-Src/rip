@@ -59,6 +59,10 @@ namespace rip::compression
         constexpr std::size_t HASH_MASK =
             HASH_SIZE - 1;
 
+        // Three-byte candidates are only a fallback after the four-byte
+        // chain misses. Bound this chain to avoid pathological prefix runs.
+        constexpr std::size_t SHORT_MATCH_CHAIN_LENGTH = 8;
+
         constexpr std::uint8_t EXTENDED_LENGTH_MARKER =
             0xFF;
 
@@ -210,13 +214,6 @@ namespace rip::compression
         std::uint32_t hash3(
             const std::byte *data)
         {
-            /*
-             * Hash the first three bytes in a fixed byte order. A three-byte
-             * prefix is enough to begin an LZ match; bytes after the prefix
-             * are checked by the matcher. This lets RIPC encode short matches
-             * when the following byte differs, while keeping the v11 token
-             * and stream formats unchanged.
-             */
             std::uint32_t hash =
                 (static_cast<std::uint32_t>(
                      static_cast<std::uint8_t>(data[0])) << 16u) |
@@ -224,6 +221,31 @@ namespace rip::compression
                      static_cast<std::uint8_t>(data[1])) << 8u) |
                 static_cast<std::uint32_t>(
                     static_cast<std::uint8_t>(data[2]));
+
+            hash *= 0x9E3779B1u;
+            hash ^= hash >> 16u;
+
+            return (hash >> (32u - HASH_BITS)) & HASH_MASK;
+        }
+
+        std::uint32_t hash4(
+            const std::byte *data)
+        {
+            /*
+             * The main LZ chain indexes four-byte prefixes. Short three-byte
+             * matches use a separate, tightly bounded fallback chain, so a
+             * large number of different fourth bytes cannot make every
+             * lookup walk the entire dictionary.
+             */
+            std::uint32_t hash =
+                (static_cast<std::uint32_t>(
+                     static_cast<std::uint8_t>(data[0])) << 24u) |
+                (static_cast<std::uint32_t>(
+                     static_cast<std::uint8_t>(data[1])) << 16u) |
+                (static_cast<std::uint32_t>(
+                     static_cast<std::uint8_t>(data[2])) << 8u) |
+                static_cast<std::uint32_t>(
+                    static_cast<std::uint8_t>(data[3]));
 
             hash *= 0x9E3779B1u;
             hash ^= hash >> 16u;
@@ -333,35 +355,74 @@ namespace rip::compression
                 lazy_lookahead = 4;
             }
 
-            std::vector<int> head(
+            std::vector<int> head4(
                 HASH_SIZE,
                 -1);
 
-            std::vector<int> previous(
+            std::vector<int> previous4(
                 input.size(),
                 -1);
+
+            std::vector<int> head3(
+                HASH_SIZE,
+                -1);
+
+            // A 16-bit backward distance is enough for the 64 KiB window,
+            // and costs half as much as a per-position absolute link.
+            std::vector<std::uint16_t> previous3(
+                input.size(),
+                0);
 
             std::uint16_t last_match_distance = 0;
 
             auto insert_position =
                 [&](std::size_t position)
             {
-                if (input.size() - position < MIN_MATCH_LENGTH)
+                const std::size_t remaining =
+                    input.size() - position;
+
+                if (remaining < MIN_MATCH_LENGTH)
                 {
                     return;
                 }
 
-                const std::uint32_t hash =
-                    hash3(
-                        input.data() +
-                        position);
+                const std::uint32_t hash_three =
+                    hash3(input.data() + position);
 
-                previous[position] =
-                    head[hash];
+                const int previous_three =
+                    head3[hash_three];
 
-                head[hash] =
-                    static_cast<int>(
-                        position);
+                previous3[position] = 0;
+
+                if (previous_three >= 0)
+                {
+                    const std::size_t previous_position =
+                        static_cast<std::size_t>(previous_three);
+
+                    const std::size_t distance =
+                        position - previous_position;
+
+                    if (distance <= WINDOW_SIZE)
+                    {
+                        previous3[position] =
+                            static_cast<std::uint16_t>(distance);
+                    }
+                }
+
+                head3[hash_three] =
+                    static_cast<int>(position);
+
+                if (remaining >= 4)
+                {
+                    const std::uint32_t hash_four =
+                        hash4(input.data() + position);
+
+                    previous4[position] =
+                        head4[hash_four];
+
+                    head4[hash_four] =
+                        static_cast<int>(position);
+                }
             };
 
             auto find_match =
@@ -370,132 +431,33 @@ namespace rip::compression
                 std::size_t best_length = 0;
                 std::size_t best_distance = 0;
 
-                if (input.size() - position < MIN_MATCH_LENGTH)
+                const std::size_t remaining =
+                    input.size() - position;
+
+                if (remaining < MIN_MATCH_LENGTH)
                 {
                     return std::pair{
                         best_length,
                         best_distance};
                 }
 
-                const std::uint32_t hash =
-                    hash3(
-                        input.data() +
-                        position);
+                const std::size_t maximum =
+                    std::min(
+                        MAX_MATCH_LENGTH,
+                        remaining);
 
-                int candidate =
-                    head[hash];
-
-                std::size_t chain_count = 0;
-
-                while (
-                    candidate >= 0 &&
-                    chain_count <
-                        max_chain_length)
+                auto consider_match =
+                    [&](std::size_t distance,
+                        std::size_t length)
                 {
-                    const std::size_t
-                        candidate_position =
-                            static_cast<std::size_t>(
-                                candidate);
-
-                    if (candidate_position >=
-                        position)
-                    {
-                        break;
-                    }
-
-                    const std::size_t distance =
-                        position -
-                        candidate_position;
-
-                    if (distance >
-                        WINDOW_SIZE)
-                    {
-                        break;
-                    }
-
-                    if (input[candidate_position] !=
-                            input[position] ||
-                        input[candidate_position + 1] !=
-                            input[position + 1] ||
-                        input[candidate_position + 2] !=
-                            input[position + 2])
-                    {
-                        candidate =
-                            previous[candidate_position];
-
-                        ++chain_count;
-                        continue;
-                    }
-
-                    const std::size_t maximum =
-                        std::min(
-                            MAX_MATCH_LENGTH,
-                            input.size() -
-                                position);
-
-                    std::size_t length = MIN_MATCH_LENGTH;
-
-                    /*
-                     * Compare long matches a machine word at a time.
-                     * memcpy keeps the loads valid for unaligned input
-                     * pointers and lets compilers lower them efficiently.
-                     * If a word differs, inspect just that word bytewise so
-                     * the exact match length and match selection stay the
-                     * same as the original byte-at-a-time loop.
-                     */
-                    while (length + sizeof(std::uint64_t) <= maximum)
-                    {
-                        std::uint64_t current_word = 0;
-                        std::uint64_t candidate_word = 0;
-
-                        std::memcpy(
-                            &current_word,
-                            input.data() + position + length,
-                            sizeof(current_word));
-
-                        std::memcpy(
-                            &candidate_word,
-                            input.data() + candidate_position + length,
-                            sizeof(candidate_word));
-
-                        if (current_word != candidate_word)
-                        {
-                            const std::size_t word_offset = length;
-                            std::size_t matching_bytes = 0;
-
-                            while (
-                                matching_bytes < sizeof(std::uint64_t) &&
-                                input[position + word_offset + matching_bytes] ==
-                                    input[candidate_position + word_offset + matching_bytes])
-                            {
-                                ++matching_bytes;
-                            }
-
-                            length += matching_bytes;
-                            break;
-                        }
-
-                        length += sizeof(std::uint64_t);
-                    }
-
-                    while (
-                        length < maximum &&
-                        input[position + length] ==
-                            input[candidate_position + length])
-                    {
-                        ++length;
-                    }
-
                     bool better_match = false;
 
                     if (level > 9)
                     {
                         /*
-                         * Ultra estimates the encoded cost, not just the
-                         * raw length. Reusing the previous distance avoids
-                         * two distance bytes, while lengths above 257 need
-                         * two extra length bytes. This can make a slightly
-                         * shorter repeat-distance match cheaper overall.
+                         * Ultra estimates encoded cost rather than only raw
+                         * length. Reusing the previous distance saves two
+                         * bytes, while extended lengths add their own cost.
                          */
                         const std::int64_t candidate_score =
                             static_cast<std::int64_t>(length) -
@@ -547,18 +509,197 @@ namespace rip::compression
                     {
                         best_length = length;
                         best_distance = distance;
+                    }
+                };
 
-                        if (length >= nice_match_length ||
-                            length == maximum)
+                /*
+                 * Primary search: four-byte prefixes. Different fourth bytes
+                 * now live in different chains, so short-only matches do not
+                 * inflate the search cost for longer matches.
+                 */
+                if (maximum >= 4)
+                {
+                    const std::uint32_t hash =
+                        hash4(input.data() + position);
+
+                    int candidate =
+                        head4[hash];
+
+                    std::size_t chain_count = 0;
+
+                    while (
+                        candidate >= 0 &&
+                        chain_count < max_chain_length)
+                    {
+                        const std::size_t candidate_position =
+                            static_cast<std::size_t>(candidate);
+
+                        if (candidate_position >= position)
                         {
                             break;
                         }
+
+                        const std::size_t distance =
+                            position - candidate_position;
+
+                        if (distance > WINDOW_SIZE)
+                        {
+                            break;
+                        }
+
+                        const bool same_four_bytes =
+                            input[candidate_position] == input[position] &&
+                            input[candidate_position + 1] == input[position + 1] &&
+                            input[candidate_position + 2] == input[position + 2] &&
+                            input[candidate_position + 3] == input[position + 3];
+
+                        if (same_four_bytes)
+                        {
+                            std::size_t length = 4;
+
+                            /*
+                             * Compare long matches a machine word at a time.
+                             * memcpy keeps unaligned loads valid and lets the
+                             * compiler select efficient instructions.
+                             */
+                            while (length + sizeof(std::uint64_t) <= maximum)
+                            {
+                                std::uint64_t current_word = 0;
+                                std::uint64_t candidate_word = 0;
+
+                                std::memcpy(
+                                    &current_word,
+                                    input.data() + position + length,
+                                    sizeof(current_word));
+
+                                std::memcpy(
+                                    &candidate_word,
+                                    input.data() + candidate_position + length,
+                                    sizeof(candidate_word));
+
+                                if (current_word != candidate_word)
+                                {
+                                    std::size_t matching_bytes = 0;
+
+                                    while (
+                                        matching_bytes < sizeof(std::uint64_t) &&
+                                        input[position + length + matching_bytes] ==
+                                            input[candidate_position + length + matching_bytes])
+                                    {
+                                        ++matching_bytes;
+                                    }
+
+                                    length += matching_bytes;
+                                    break;
+                                }
+
+                                length += sizeof(std::uint64_t);
+                            }
+
+                            while (
+                                length < maximum &&
+                                input[position + length] ==
+                                    input[candidate_position + length])
+                            {
+                                ++length;
+                            }
+
+                            consider_match(distance, length);
+
+                            if (best_length >= nice_match_length ||
+                                best_length == maximum)
+                            {
+                                break;
+                            }
+                        }
+
+                        candidate =
+                            previous4[candidate_position];
+
+                        ++chain_count;
                     }
+                }
 
-                    candidate =
-                        previous[candidate_position];
+                /*
+                 * Fallback search: three-byte prefixes. It is only necessary
+                 * when no four-byte match was found, except for Ultra where a
+                 * repeat-distance length-three token can still have a lower
+                 * encoded cost than a slightly longer fresh-distance match.
+                 * The compact links and fixed depth cap make this independent
+                 * of the number of repeated three-byte markers in the window.
+                 */
+                if (best_length < 4 || level > 9)
+                {
+                    const std::uint32_t hash =
+                        hash3(input.data() + position);
 
-                    ++chain_count;
+                    int candidate =
+                        head3[hash];
+
+                    const std::size_t short_chain_limit =
+                        std::min(
+                            max_chain_length,
+                            SHORT_MATCH_CHAIN_LENGTH);
+
+                    std::size_t chain_count = 0;
+
+                    while (
+                        candidate >= 0 &&
+                        chain_count < short_chain_limit)
+                    {
+                        const std::size_t candidate_position =
+                            static_cast<std::size_t>(candidate);
+
+                        if (candidate_position >= position)
+                        {
+                            break;
+                        }
+
+                        const std::size_t distance =
+                            position - candidate_position;
+
+                        if (distance > WINDOW_SIZE)
+                        {
+                            break;
+                        }
+
+                        if (
+                            input[candidate_position] == input[position] &&
+                            input[candidate_position + 1] == input[position + 1] &&
+                            input[candidate_position + 2] == input[position + 2])
+                        {
+                            std::size_t length = MIN_MATCH_LENGTH;
+
+                            while (
+                                length < maximum &&
+                                input[position + length] ==
+                                    input[candidate_position + length])
+                            {
+                                ++length;
+                            }
+
+                            consider_match(distance, length);
+
+                            if (best_length >= nice_match_length ||
+                                best_length == maximum)
+                            {
+                                break;
+                            }
+                        }
+
+                        const std::uint16_t backward_distance =
+                            previous3[candidate_position];
+
+                        if (backward_distance == 0)
+                        {
+                            break;
+                        }
+
+                        candidate -=
+                            static_cast<int>(backward_distance);
+
+                        ++chain_count;
+                    }
                 }
 
                 return std::pair{
@@ -568,10 +709,8 @@ namespace rip::compression
 
             /*
              * Evaluate a match that starts a few bytes later without
-             * permanently adding those speculative positions to the
-             * dictionary. This fixes the old lazy matcher limitation
-             * where position+1 could not see the current position as
-             * a dictionary candidate.
+             * permanently adding those speculative positions to either
+             * dictionary index. Each temporary link is restored below.
              */
             auto find_match_after_literals =
                 [&](std::size_t position,
@@ -580,9 +719,13 @@ namespace rip::compression
                 struct TemporaryInsert
                 {
                     std::size_t position{};
-                    std::uint32_t hash{};
-                    int old_head{-1};
-                    int old_previous{-1};
+                    std::uint32_t hash_three{};
+                    std::uint32_t hash_four{};
+                    int old_head_three{-1};
+                    int old_head_four{-1};
+                    int old_previous_four{-1};
+                    std::uint16_t old_previous_three{};
+                    bool has_four_bytes{};
                 };
 
                 std::array<
@@ -597,57 +740,98 @@ namespace rip::compression
                      i < temporary.size();
                      ++i)
                 {
-                    const std::size_t
-                        temporary_position =
-                            position + i;
+                    const std::size_t temporary_position =
+                        position + i;
 
-                    if (input.size() - temporary_position < MIN_MATCH_LENGTH)
+                    const std::size_t temporary_remaining =
+                        input.size() - temporary_position;
+
+                    if (temporary_remaining < MIN_MATCH_LENGTH)
                     {
                         break;
                     }
 
-                    const std::uint32_t hash =
-                        hash3(
-                            input.data() +
-                            temporary_position);
+                    const std::uint32_t hash_three =
+                        hash3(input.data() + temporary_position);
 
-                    temporary[inserted] =
-                        TemporaryInsert{
-                            .position =
-                                temporary_position,
-                            .hash = hash,
-                            .old_head = head[hash],
-                            .old_previous =
-                                previous[
-                                    temporary_position]};
+                    TemporaryInsert item{
+                        .position = temporary_position,
+                        .hash_three = hash_three,
+                        .old_head_three = head3[hash_three],
+                        .old_previous_three = previous3[temporary_position],
+                        .has_four_bytes = temporary_remaining >= 4};
 
-                    previous[temporary_position] =
-                        head[hash];
+                    if (item.has_four_bytes)
+                    {
+                        item.hash_four =
+                            hash4(input.data() + temporary_position);
+                        item.old_head_four =
+                            head4[item.hash_four];
+                        item.old_previous_four =
+                            previous4[temporary_position];
+                    }
 
-                    head[hash] =
-                        static_cast<int>(
-                            temporary_position);
+                    temporary[inserted] = item;
+
+                    const int previous_three =
+                        head3[hash_three];
+
+                    previous3[temporary_position] = 0;
+
+                    if (previous_three >= 0)
+                    {
+                        const std::size_t previous_position =
+                            static_cast<std::size_t>(previous_three);
+
+                        const std::size_t distance =
+                            temporary_position - previous_position;
+
+                        if (distance <= WINDOW_SIZE)
+                        {
+                            previous3[temporary_position] =
+                                static_cast<std::uint16_t>(distance);
+                        }
+                    }
+
+                    head3[hash_three] =
+                        static_cast<int>(temporary_position);
+
+                    if (item.has_four_bytes)
+                    {
+                        previous4[temporary_position] =
+                            head4[item.hash_four];
+
+                        head4[item.hash_four] =
+                            static_cast<int>(temporary_position);
+                    }
 
                     ++inserted;
                 }
 
                 const auto result =
-                    find_match(
-                        position +
-                        literal_count);
+                    find_match(position + literal_count);
 
                 while (inserted > 0)
                 {
                     --inserted;
 
-                    const auto& item =
+                    const TemporaryInsert& item =
                         temporary[inserted];
 
-                    head[item.hash] =
-                        item.old_head;
+                    head3[item.hash_three] =
+                        item.old_head_three;
 
-                    previous[item.position] =
-                        item.old_previous;
+                    previous3[item.position] =
+                        item.old_previous_three;
+
+                    if (item.has_four_bytes)
+                    {
+                        head4[item.hash_four] =
+                            item.old_head_four;
+
+                        previous4[item.position] =
+                            item.old_previous_four;
+                    }
                 }
 
                 return result;
