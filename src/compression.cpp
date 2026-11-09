@@ -365,9 +365,9 @@ namespace rip::compression
                 HASH_SIZE,
                 -1);
 
-            std::vector<int> previous4(
+            std::vector<std::uint16_t> previous4(
                 input.size(),
-                -1);
+                0);
 
             std::vector<int> head3(
                 SHORT_HASH_SIZE,
@@ -423,8 +423,23 @@ namespace rip::compression
                     const std::uint32_t hash_four =
                         hash4(input.data() + position);
 
-                    previous4[position] =
+                    previous4[position] = 0;
+
+                    const int previous_position =
                         head4[hash_four];
+
+                    if (previous_position >= 0)
+                    {
+                        const std::size_t distance =
+                            position -
+                            static_cast<std::size_t>(previous_position);
+
+                        if (distance <= WINDOW_SIZE)
+                        {
+                            previous4[position] =
+                                static_cast<std::uint16_t>(distance);
+                        }
+                    }
 
                     head4[hash_four] =
                         static_cast<int>(position);
@@ -619,8 +634,16 @@ namespace rip::compression
                             }
                         }
 
-                        candidate =
+                        const std::uint16_t backward_distance =
                             previous4[candidate_position];
+
+                        if (backward_distance == 0)
+                        {
+                            break;
+                        }
+
+                        candidate -=
+                            static_cast<int>(backward_distance);
 
                         ++chain_count;
                     }
@@ -758,7 +781,7 @@ namespace rip::compression
                     std::uint32_t hash_four{};
                     int old_head_three{-1};
                     int old_head_four{-1};
-                    int old_previous_four{-1};
+                    std::uint16_t old_previous_four{};
                     std::uint16_t old_previous_three{};
                     bool has_four_bytes{};
                 };
@@ -833,8 +856,25 @@ namespace rip::compression
 
                     if (item.has_four_bytes)
                     {
-                        previous4[temporary_position] =
+                        previous4[temporary_position] = 0;
+
+                        const int previous_four =
                             head4[item.hash_four];
+
+                        if (previous_four >= 0)
+                        {
+                            const std::size_t previous_position =
+                                static_cast<std::size_t>(previous_four);
+
+                            const std::size_t distance =
+                                temporary_position - previous_position;
+
+                            if (distance <= WINDOW_SIZE)
+                            {
+                                previous4[temporary_position] =
+                                    static_cast<std::uint16_t>(distance);
+                            }
+                        }
 
                         head4[item.hash_four] =
                             static_cast<int>(temporary_position);
