@@ -59,9 +59,15 @@ namespace rip::compression
         constexpr std::size_t HASH_MASK =
             HASH_SIZE - 1;
 
+        constexpr std::size_t SHORT_HASH_BITS = 20;
+        constexpr std::size_t SHORT_HASH_SIZE =
+            std::size_t{1} << SHORT_HASH_BITS;
+        constexpr std::size_t SHORT_HASH_MASK =
+            SHORT_HASH_SIZE - 1;
+
         // Three-byte candidates are only a fallback after the four-byte
         // chain misses. Bound this chain to avoid pathological prefix runs.
-        constexpr std::size_t SHORT_MATCH_CHAIN_LENGTH = 32;
+        constexpr std::size_t SHORT_MATCH_CHAIN_LENGTH = 64;
 
         constexpr std::uint8_t EXTENDED_LENGTH_MARKER =
             0xFF;
@@ -225,7 +231,7 @@ namespace rip::compression
             hash *= 0x9E3779B1u;
             hash ^= hash >> 16u;
 
-            return (hash >> (32u - HASH_BITS)) & HASH_MASK;
+            return (hash >> (32u - SHORT_HASH_BITS)) & SHORT_HASH_MASK;
         }
 
         std::uint32_t hash4(
@@ -364,7 +370,7 @@ namespace rip::compression
                 -1);
 
             std::vector<int> head3(
-                HASH_SIZE,
+                SHORT_HASH_SIZE,
                 -1);
 
             // A 16-bit backward distance is enough for the 64 KiB window,
@@ -680,11 +686,15 @@ namespace rip::compression
 
                             consider_match(distance, length);
 
-                            if (best_length >= nice_match_length ||
-                                best_length == maximum)
-                            {
-                                break;
-                            }
+                            /*
+                             * The chain is newest-first. The first exact
+                             * three-byte prefix is therefore the cheapest
+                             * non-repeat-distance short candidate. Older
+                             * candidates can only improve this tie if they
+                             * reuse the previous match distance, which is
+                             * checked directly below.
+                             */
+                            break;
                         }
 
                         const std::uint16_t backward_distance =
@@ -699,6 +709,31 @@ namespace rip::compression
                             static_cast<int>(backward_distance);
 
                         ++chain_count;
+                    }
+
+                    if (last_match_distance != 0 &&
+                        last_match_distance <= position)
+                    {
+                        const std::size_t repeat_position =
+                            position - last_match_distance;
+
+                        if (
+                            input[repeat_position] == input[position] &&
+                            input[repeat_position + 1] == input[position + 1] &&
+                            input[repeat_position + 2] == input[position + 2])
+                        {
+                            std::size_t length = MIN_MATCH_LENGTH;
+
+                            while (
+                                length < maximum &&
+                                input[position + length] ==
+                                    input[repeat_position + length])
+                            {
+                                ++length;
+                            }
+
+                            consider_match(last_match_distance, length);
+                        }
                     }
                 }
 
