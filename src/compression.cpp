@@ -61,7 +61,7 @@ namespace rip::compression
 
         // Three-byte candidates are only a fallback after the four-byte
         // chain misses. Bound this chain to avoid pathological prefix runs.
-        constexpr std::size_t SHORT_MATCH_CHAIN_LENGTH = 8;
+        constexpr std::size_t SHORT_MATCH_CHAIN_LENGTH = 32;
 
         constexpr std::uint8_t EXTENDED_LENGTH_MARKER =
             0xFF;
